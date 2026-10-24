@@ -1,0 +1,84 @@
+# MoodVoice runtime configuration.
+# Secret values belong in .env, never in this file.
+
+app:
+  name: "MoodVoice"
+  version: "1.0.0"
+  language: "zh-CN"
+  max_input_chars: 8000
+  # Speech text is capped independently from rendered text.
+  max_tts_chars: 3000
+
+server:
+  # Keep loopback-only unless you have added your own access control.
+  host: "127.0.0.1"
+  port: 8765
+
+tts:
+  # auto | edge | openai | elevenlabs | azure | minimax | local
+  provider: "auto"
+  # Explicit opt-in fallback chain. Empty means: provider failure -> plain text.
+  # Cross-provider fallback sends the same text to these providers; list only
+  # vendors you have configured and are comfortable sending text to.
+  fallback_providers: []
+  first_chunk_timeout_seconds: 12
+  total_timeout_seconds: 60
+  # Auto mode picks the first ready provider in this order.
+  auto_order:
+    - "azure"
+    - "openai"
+    - "elevenlabs"
+    - "minimax"
+    - "local"
+    - "edge"
+  cache:
+    max_files: 200
+    max_age_hours: 168
+  data_dir: ".data"
+  styles_file: "config/emotion_styles.yaml"
+  routes_file: "config/routes.yaml"
+
+providers:
+  # Free, keyless demo channel. edge-tts is an online Microsoft service:
+  # text leaves this machine. For fully local speech, use providers.local.
+  edge:
+    enabled: true
+    voice: "zh-CN-XiaoxiaoNeural"
+
+  openai:
+    enabled: true
+    base_url: "https://api.openai.com/v1"
+    model: "gpt-4o-mini-tts"
+    voice: "coral"
+    response_format: "mp3"
+
+  elevenlabs:
+    enabled: true
+    base_url: "https://api.elevenlabs.io/v1"
+    model_id: "eleven_multilingual_v2"
+    # Fill this in config (not a secret) after choosing a voice.
+    voice_id: ""
+    output_format: "mp3_44100_128"
+
+  azure:
+    enabled: true
+    # Region may also be supplied with AZURE_SPEECH_REGION.
+    region: ""
+    voice: "zh-CN-XiaoxiaoNeural"
+    output_format: "audio-24khz-48kbitrate-mono-mp3"
+
+  minimax:
+    enabled: true
+    base_url: "https://api.minimax.chat/v1/t2a_v2"
+    model: "speech-02-hd"
+    voice_id: "female-shaonv"
+    group_id: ""
+    # "Chinese" / "English" / "auto" — MiniMax language_boost.
+    language_boost: "Chinese"
+
+  local:
+    enabled: true
+    # Exact endpoint implementing the local adapter contract.
+    base_url: ""
+    voice: "default"
+    format: "wav"

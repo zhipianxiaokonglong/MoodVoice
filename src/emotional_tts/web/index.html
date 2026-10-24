@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>MoodVoice · 情感语音输出层</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <div class="ambient" aria-hidden="true">
+    <span class="orb orb-a"></span>
+    <span class="orb orb-b"></span>
+    <span class="orb orb-c"></span>
+  </div>
+
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="MoodVoice 首页">
+      <span class="brand-mark" aria-hidden="true">
+        <i></i><i></i><i></i><i></i>
+      </span>
+      <span class="brand-text">
+        <strong>MoodVoice</strong>
+        <small>情感语音输出层</small>
+      </span>
+    </a>
+    <div class="topbar-actions">
+      <span class="health-pill" id="healthPill" data-state="loading">
+        <span class="health-dot" aria-hidden="true"></span>
+        <span id="healthText">连接本地服务…</span>
+      </span>
+      <button class="ghost-button" id="clearCacheBtn" type="button" title="删除本机音频与结构化记录">
+        清除本地数据
+      </button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="composer panel" aria-labelledby="composerTitle">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">OUTPUT CONSOLE</p>
+          <h1 id="composerTitle">让文字带上情绪，<br><em>而不只是被读出来。</em></h1>
+        </div>
+        <span class="version-tag" id="versionTag">v1.0</span>
+      </div>
+
+      <form id="composerForm">
+        <div class="field-group">
+          <div class="label-row">
+            <label for="contentInput">上游 LLM 输出</label>
+            <span class="char-count"><span id="charCount">0</span> / <span id="charLimit">8000</span></span>
+          </div>
+          <textarea id="contentInput" rows="7" spellcheck="false" maxlength="8000">今天真的辛苦你了。
+
+不用急着把所有事情都做完，先慢慢呼吸一下。我在这里陪着你，剩下的事情，我们一件一件来。</textarea>
+          <p class="field-hint">标签由上游统一打标；本层只消费，不重复做情感分类。</p>
+        </div>
+
+        <div class="tag-grid">
+          <div class="field-group">
+            <label for="emotionSelect">情感标签</label>
+            <select id="emotionSelect">
+              <option value="comfort" selected>安慰 · 温柔低缓</option>
+              <option value="joy">开心 · 明亮轻快</option>
+              <option value="excitement">兴奋 · 高昂有能量</option>
+              <option value="tenderness">温柔 · 亲近柔和</option>
+              <option value="calm">平静 · 平稳舒缓</option>
+              <option value="sadness">悲伤 · 低沉克制</option>
+              <option value="apology">歉意 · 诚恳放低</option>
+              <option value="encouragement">鼓励 · 坚定温暖</option>
+              <option value="surprise">惊喜 · 上扬明亮</option>
+              <option value="frustration">受挫 · 克制理解</option>
+              <option value="anger">生气 · 坚定克制</option>
+              <option value="neutral">中性 · 自然平稳</option>
+            </select>
+          </div>
+          <div class="field-group">
+            <label for="typeSelect">内容类型</label>
+            <select id="typeSelect">
+              <option value="text" selected>普通文本</option>
+              <option value="code">代码块</option>
+              <option value="list">列表</option>
+              <option value="markdown">Markdown</option>
+            </select>
+          </div>
+          <div class="field-group">
+            <label for="intentSelect">意图</label>
+            <select id="intentSelect">
+              <option value="reply" selected>回复 · 合成语音</option>
+              <option value="tool">工具结果 · 仅文本</option>
+              <option value="linkage">联动 · 路由下游</option>
+            </select>
+          </div>
+          <div class="field-group">
+            <label for="providerSelect">语音厂商</label>
+            <select id="providerSelect">
+              <option value="auto">自动选择</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="switch-row">
+          <label class="switch">
+            <input id="streamToggle" type="checkbox" checked>
+            <span class="switch-track" aria-hidden="true"><span></span></span>
+            <span class="switch-copy">
+              <strong>流式播放</strong>
+              <small>WebSocket 边合成边播放，优先降低首响</small>
+            </span>
+          </label>
+          <button class="primary-button" id="generateBtn" type="submit">
+            <span class="button-label">生成情感语音</span>
+            <span class="button-wave" aria-hidden="true"><i></i><i></i><i></i></span>
+          </button>
+        </div>
+      </form>
+
+      <aside class="privacy-card">
+        <div class="privacy-icon" aria-hidden="true">i</div>
+        <div>
+          <strong>数据边界</strong>
+          <p id="privacyText">文本只会发往你选择的 TTS 厂商或本地服务；密钥只在本地读取，不进入浏览器。</p>
+          <p class="privacy-foot">BYOK · 无遥测 · 音频仅存本机 <code>.data/</code></p>
+        </div>
+      </aside>
+    </section>
+
+    <section class="stage panel" aria-labelledby="stageTitle">
+      <div class="stage-head">
+        <div>
+          <p class="eyebrow">ASSEMBLY PREVIEW</p>
+          <h2 id="stageTitle">输出组装结果</h2>
+        </div>
+        <span class="status-badge" id="statusBadge" data-state="idle">等待输入</span>
+      </div>
+
+      <div class="stage-empty" id="stageEmpty">
+        <div class="empty-wave" aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span>
+        </div>
+        <p>写下或粘贴一段 LLM 输出，<br>看看情绪如何变成声音。</p>
+        <small>默认使用免密钥的 edge-tts，可直接试听。</small>
+      </div>
+
+      <div class="result" id="resultView" hidden>
+        <div class="audio-card" id="audioCard" hidden>
+          <div class="audio-topline">
+            <span class="audio-label">EMOTIONAL VOICE</span>
+            <span class="audio-latency" id="latencyBadge">首响 —</span>
+          </div>
+          <div class="audio-body">
+            <div class="live-bars" id="liveBars" aria-hidden="true">
+              <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+            </div>
+            <audio id="audioPlayer" controls preload="none"></audio>
+          </div>
+          <div class="audio-meta">
+            <span id="providerBadge">—</span>
+            <span id="formatBadge">—</span>
+            <a id="downloadLink" href="#" download>下载音频</a>
+          </div>
+        </div>
+
+        <div class="text-only-banner" id="textOnlyBanner" hidden>
+          <span class="banner-mark" aria-hidden="true">TXT</span>
+          <div>
+            <strong id="textOnlyTitle">纯文本输出</strong>
+            <p id="textOnlyReason">当前意图不合成语音，文本已按路由下发。</p>
+          </div>
+        </div>
+
+        <div class="style-strip">
+          <div class="style-emotion">
+            <span class="emotion-glyph" id="emotionGlyph" aria-hidden="true">安</span>
+            <div>
+              <strong id="emotionName">安慰</strong>
+              <p id="toneText">温柔低缓，有陪伴感</p>
+            </div>
+          </div>
+          <dl class="style-stats">
+            <div><dt>语速</dt><dd id="speedValue">0.92×</dd></div>
+            <div><dt>音高</dt><dd id="pitchValue">-1</dd></div>
+            <div><dt>首响</dt><dd id="ttfbValue">—</dd></div>
+            <div><dt>状态</dt><dd id="degradedValue">正常</dd></div>
+          </dl>
+        </div>
+
+        <div class="route-row">
+          <span class="route-dot" aria-hidden="true"></span>
+          <p><strong id="intentName">reply</strong><span class="route-arrow">→</span><code id="destinationName">ui.voice_reply</code></p>
+          <span class="route-reason" id="routeReason">spoken assistant reply</span>
+        </div>
+
+        <div class="speech-card">
+          <div class="mini-heading">
+            <span>实际朗读脚本</span>
+            <small>已按内容类型清理代码/标记</small>
+          </div>
+          <p id="speechText">—</p>
+        </div>
+
+        <div class="render-card">
+          <div class="mini-heading">
+            <span>文本渲染</span>
+            <small id="renderMeta">plain text</small>
+          </div>
+          <div class="render-area" id="renderArea"></div>
+        </div>
+
+        <details class="dev-details">
+          <summary>开发诊断 <small>标签映射 / 厂商参数 / 尝试记录 / 原始事件</small></summary>
+          <div class="dev-grid">
+            <div>
+              <h4>标签消费</h4>
+              <pre id="diagnosticsJson">{}</pre>
+            </div>
+            <div>
+              <h4>输出事件（契约）</h4>
+              <pre id="rawJson">{}</pre>
+            </div>
+          </div>
+        </details>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>MoodVoice · tag-driven emotional TTS</span>
+    <span>仅监听本机 · 密钥不经浏览器 · 音频可清除</span>
+  </footer>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="/assets/app.js"></script>
+</body>
+</html>

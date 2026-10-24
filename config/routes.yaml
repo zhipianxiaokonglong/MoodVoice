@@ -1,0 +1,19 @@
+# Intent -> downstream route. The output layer consumes upstream intent tags
+# and never re-classifies them.
+version: 1
+
+unknown_intent: "ui.text_reply"
+
+intents:
+  reply:
+    destination: "ui.voice_reply"
+    synthesize: true
+    reason: "spoken assistant reply"
+  tool:
+    destination: "ui.tool_result"
+    synthesize: false
+    reason: "tool results are rendered; they are not read aloud by default"
+  linkage:
+    destination: "integration.linkage"
+    synthesize: false
+    reason: "linkage hand-off must reach the integration layer without voice"

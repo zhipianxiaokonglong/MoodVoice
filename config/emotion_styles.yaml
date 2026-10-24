@@ -1,0 +1,499 @@
+# ===========================================================================
+# Emotion -> voice style mapping
+# ===========================================================================
+# This file is the single source of truth for emotional presentation.
+# Upstream owns emotion classification; this layer only maps the supplied tag.
+#
+# Canonical fields:
+#   label / tone / description : shown to the user and logged as structured data
+#   speed                      : canonical multiplier (0.5 .. 2.0)
+#   pitch_semitones            : canonical pitch shift (-12 .. 12)
+#   volume_db                  : canonical volume shift (-12 .. 6)
+#   aliases                    : accepted upstream tags, normalized to lowercase
+#   provider_overrides         : vendor-specific direction. All fields optional.
+#
+# Adapter precedence:
+#   provider_overrides.<provider> > this file's canonical values > app.yaml voice
+#
+# See docs/DEVELOPER_GUIDE.md for the full schema and validation rules.
+# ===========================================================================
+version: 1
+fallback_emotion: "neutral"
+
+emotions:
+  neutral:
+    label: "中性"
+    tone: "自然平稳，像日常对话"
+    description: "不刻意煽情，保持清晰、松弛的叙述感。"
+    speed: 1.00
+    pitch_semitones: 0
+    volume_db: 0
+    aliases:
+      - "neutral"
+      - "plain"
+      - "default"
+      - "none"
+      - "中性"
+      - "普通"
+    provider_overrides:
+      edge:
+        voice: "zh-CN-XiaoxiaoNeural"
+        pitch: "+0Hz"
+        volume: "+0%"
+      azure:
+        style: "assistant"
+        style_degree: 1.0
+        pitch: "+0%"
+      openai:
+        voice: "coral"
+        instructions: "Speak in natural Mandarin Chinese. Keep a calm, friendly and conversational tone at a normal pace."
+      elevenlabs:
+        stability: 0.55
+        similarity_boost: 0.80
+        style: 0.25
+        use_speaker_boost: true
+      minimax:
+        emotion: "neutral"
+      local:
+        tone: "自然平稳"
+
+  joy:
+    label: "开心"
+    tone: "明亮轻快，带一点笑意"
+    description: "语速略快、音高微扬，尾音轻快但不浮夸。"
+    speed: 1.08
+    pitch_semitones: 2
+    volume_db: 1
+    aliases:
+      - "joy"
+      - "happy"
+      - "happiness"
+      - "glad"
+      - "delight"
+      - "cheerful"
+      - "开心"
+      - "高兴"
+      - "快乐"
+      - "喜悦"
+      - "愉快"
+      - "欢喜"
+    provider_overrides:
+      edge:
+        voice: "zh-CN-XiaoxiaoNeural"
+        pitch: "+3Hz"
+        volume: "+2%"
+      azure:
+        style: "cheerful"
+        style_degree: 1.5
+        pitch: "+2%"
+      openai:
+        voice: "coral"
+        instructions: "Speak in Mandarin Chinese with a bright, warm smile in the voice. Slightly faster and lighter, with gently rising endings. Do not sound performative."
+      elevenlabs:
+        stability: 0.32
+        similarity_boost: 0.80
+        style: 0.65
+        use_speaker_boost: true
+      minimax:
+        emotion: "happy"
+      local:
+        tone: "明亮轻快"
+
+  excitement:
+    label: "兴奋"
+    tone: "高昂有能量，节奏明快"
+    description: "语速更快、音高上扬，重音更明显，适合庆祝与好消息。"
+    speed: 1.14
+    pitch_semitones: 3
+    volume_db: 2
+    aliases:
+      - "excitement"
+      - "excited"
+      - "thrilled"
+      - "celebration"
+      - "celebratory"
+      - "celebrate"
+      - "兴奋"
+      - "激动"
+      - "庆祝"
+      - "太棒了"
+    provider_overrides:
+      edge:
+        voice: "zh-CN-XiaoxiaoNeural"
+        pitch: "+4Hz"
+        volume: "+4%"
+      azure:
+        # Xiaoxiao's common style set is preferred here; for voices that
+        # explicitly support "excited", switch this override after verifying.
+        style: "cheerful"
+        style_degree: 1.8
+        pitch: "+4%"
+      openai:
+        voice: "nova"
+        instructions: "Speak in Mandarin Chinese with genuine excitement and lively energy. Faster pace, brighter pitch, clear celebratory emphasis, but remain intelligible."
+      elevenlabs:
+        stability: 0.25
+        similarity_boost: 0.80
+        style: 0.80
+        use_speaker_boost: true
+      minimax:
+        emotion: "happy"
+      local:
+        tone: "高昂有能量"
+
+  comfort:
+    label: "安慰"
+    tone: "温柔低缓，有陪伴感"
+    description: "降低语速与音高，句间留白，避免过度甜美或说教。"
+    speed: 0.92
+    pitch_semitones: -1
+    volume_db: -1
+    aliases:
+      - "comfort"
+      - "comforting"
+      - "soothe"
+      - "soothing"
+      - "console"
+      - "reassure"
+      - "安慰"
+      - "安抚"
+      - "陪伴"
+      - "暖心"
+      - "心疼"
+      - "抱抱"
+    provider_overrides:
+      edge:
+        voice: "zh-CN-XiaoxiaoNeural"
+        pitch: "-2Hz"
+        volume: "-2%"
+      azure:
+        style: "gentle"
+        style_degree: 1.6
+        pitch: "-2%"
+      openai:
+        voice: "sage"
+        instructions: "Speak in Mandarin Chinese like a caring friend sitting nearby. Slow, soft and grounded. Use gentle pauses, low volume and a warm downward cadence. Never sound patronizing."
+      elevenlabs:
+        stability: 0.62
+        similarity_boost: 0.85
+        style: 0.45
+        use_speaker_boost: false
+      minimax:
+        emotion: "neutral"
+      local:
+        tone: "温柔低缓"
+
+  tenderness:
+    label: "温柔"
+    tone: "亲近柔和，气息感"
+    description: "比安慰更轻盈亲密，音量偏低，语调柔软。"
+    speed: 0.94
+    pitch_semitones: -1
+    volume_db: -2
+    aliases:
+      - "tenderness"
+      - "tender"
+      - "gentle"
+      - "affectionate"
+      - "warm"
+      - "温柔"
+      - "亲昵"
+      - "轻柔"
+      - "细腻"
+    provider_overrides:
+      edge:
+        voice: "zh-CN-XiaoxiaoNeural"
+        pitch: "-1Hz"
+        volume: "-3%"
+      azure:
+        style: "affectionate"
+        style_degree: 1.5
+        pitch: "-1%"
+      openai:
+        voice: "sage"
+        instructions: "Speak in Mandarin Chinese with tender, intimate warmth. Soft breathy delivery, slower pace, close and reassuring, without becoming theatrical."
+      elevenlabs:
+        stability: 0.58
+        similarity_boost: 0.85
+        style: 0.50
+        use_speaker_boost: false
+      minimax:
+        emotion: "neutral"
+      local:
+        tone: "亲近柔和"
+
+  calm:
+    label: "平静"
+    tone: "平稳舒缓，呼吸感"
+    description: "节奏均匀、停顿清楚，帮助听者放慢下来。"
+    speed: 0.90
+    pitch_semitones: -1
+    volume_db: -1
+    aliases:
+      - "calm"
+      - "peaceful"
+      - "serene"
+      - "relaxed"
+      - "slow"
+      - "平静"
+      - "放松"
+      - "安静"
+      - "舒缓"
+      - "深呼吸"
+    provider_overrides:
+      edge:
+        voice: "zh-CN-XiaoxiaoNeural"
+        pitch: "-2Hz"
+        volume: "-2%"
+      azure:
+        style: "calm"
+        style_degree: 1.4
+        pitch: "-2%"
+      openai:
+        voice: "sage"
+        instructions: "Speak in Mandarin Chinese slowly and evenly with a relaxed, grounded presence. Leave clean pauses between phrases. Soothing, never robotic."
+      elevenlabs:
+        stability: 0.68
+        similarity_boost: 0.82
+        style: 0.35
+        use_speaker_boost: false
+      minimax:
+        emotion: "neutral"
+      local:
+        tone: "平稳舒缓"
+
+  sadness:
+    label: "悲伤"
+    tone: "低沉克制，带一点叹息"
+    description: "音高与音量降低，语速放慢，保留克制的情绪而不是哭腔。"
+    speed: 0.88
+    pitch_semitones: -2
+    volume_db: -2
+    aliases:
+      - "sadness"
+      - "sad"
+      - "sorrow"
+      - "grief"
+      - "down"
+      - "悲伤"
+      - "难过"
+      - "失落"
+      - "低落"
+      - "遗憾"
+      - "沮丧"
+    provider_overrides:
+      edge:
+        voice: "zh-CN-XiaoxiaoNeural"
+        pitch: "-3Hz"
+        volume: "-3%"
+      azure:
+        style: "sad"
+        style_degree: 1.5
+        pitch: "-3%"
+      openai:
+        voice: "sage"
+        instructions: "Speak in Mandarin Chinese with quiet, restrained sadness. Lower pitch and volume, slower pace, subtle sighs at phrase boundaries. Avoid melodrama."
+      elevenlabs:
+        stability: 0.65
+        similarity_boost: 0.84
+        style: 0.50
+        use_speaker_boost: false
+      minimax:
+        emotion: "sad"
+      local:
+        tone: "低沉克制"
+
+  apology:
+    label: "歉意"
+    tone: "诚恳放低，认真负责"
+    description: "语速稍慢、音量收敛，重点词加重但不卑微。"
+    speed: 0.93
+    pitch_semitones: -1
+    volume_db: -1
+    aliases:
+      - "apology"
+      - "apologetic"
+      - "sorry"
+      - "regret"
+      - "歉意"
+      - "道歉"
+      - "抱歉"
+      - "对不起"
+      - "不好意思"
+    provider_overrides:
+      edge:
+        voice: "zh-CN-XiaoxiaoNeural"
+        pitch: "-2Hz"
+        volume: "-2%"
+      azure:
+        style: "serious"
+        style_degree: 1.3
+        pitch: "-2%"
+      openai:
+        voice: "sage"
+        instructions: "Speak in Mandarin Chinese with a sincere, accountable apology. Slightly slower, lower volume, steady eye-level tone. Emphasize the apology without sounding weak or robotic."
+      elevenlabs:
+        stability: 0.60
+        similarity_boost: 0.84
+        style: 0.40
+        use_speaker_boost: false
+      minimax:
+        emotion: "neutral"
+      local:
+        tone: "诚恳放低"
+
+  encouragement:
+    label: "鼓励"
+    tone: "坚定温暖，向前一点"
+    description: "语速略快于安慰，句尾上扬但保持稳定，传递相信。"
+    speed: 1.05
+    pitch_semitones: 1
+    volume_db: 1
+    aliases:
+      - "encouragement"
+      - "encouraging"
+      - "supportive"
+      - "motivate"
+      - "hope"
+      - "hopeful"
+      - "鼓励"
+      - "加油"
+      - "支持"
+      - "相信你"
+      - "打气"
+    provider_overrides:
+      edge:
+        voice: "zh-CN-XiaoxiaoNeural"
+        pitch: "+2Hz"
+        volume: "+2%"
+      azure:
+        style: "cheerful"
+        style_degree: 1.4
+        pitch: "+2%"
+      openai:
+        voice: "coral"
+        instructions: "Speak in Mandarin Chinese with steady, warm encouragement. A little brighter and firmer than comfort, confident but never pushy. Land the final sentence with belief."
+      elevenlabs:
+        stability: 0.40
+        similarity_boost: 0.82
+        style: 0.60
+        use_speaker_boost: true
+      minimax:
+        emotion: "neutral"
+      local:
+        tone: "坚定温暖"
+
+  surprise:
+    label: "惊喜"
+    tone: "上扬明亮，带呼吸停顿"
+    description: "在信息点前短暂停顿，音高上扬，表达意外与欣喜。"
+    speed: 1.12
+    pitch_semitones: 3
+    volume_db: 2
+    aliases:
+      - "surprise"
+      - "surprised"
+      - "amazed"
+      - "astonished"
+      - "惊喜"
+      - "意外"
+      - "惊讶"
+      - "没想到"
+    provider_overrides:
+      edge:
+        voice: "zh-CN-XiaoxiaoNeural"
+        pitch: "+4Hz"
+        volume: "+3%"
+      azure:
+        style: "cheerful"
+        style_degree: 1.8
+        pitch: "+4%"
+      openai:
+        voice: "nova"
+        instructions: "Speak in Mandarin Chinese with a genuine surprised lift. A brief intake of breath before the reveal, brighter pitch, then a warm landing. Keep it natural."
+      elevenlabs:
+        stability: 0.28
+        similarity_boost: 0.80
+        style: 0.78
+        use_speaker_boost: true
+      minimax:
+        emotion: "surprised"
+      local:
+        tone: "上扬明亮"
+
+  frustration:
+    label: "受挫"
+    tone: "克制理解，不评判"
+    description: "保持稳定与耐心，语速略慢，避免跟着用户一起焦躁。"
+    speed: 0.95
+    pitch_semitones: -1
+    volume_db: 0
+    aliases:
+      - "frustration"
+      - "frustrated"
+      - "upset"
+      - "annoyed"
+      - "受挫"
+      - "烦躁"
+      - "失望"
+      - "委屈"
+      - "郁闷"
+    provider_overrides:
+      edge:
+        voice: "zh-CN-XiaoxiaoNeural"
+        pitch: "-1Hz"
+        volume: "+0%"
+      azure:
+        style: "calm"
+        style_degree: 1.3
+        pitch: "-1%"
+      openai:
+        voice: "sage"
+        instructions: "Speak in Mandarin Chinese with patient, non-judgmental steadiness. Slow slightly, keep an even volume, acknowledge the frustration without mirroring agitation."
+      elevenlabs:
+        stability: 0.58
+        similarity_boost: 0.82
+        style: 0.35
+        use_speaker_boost: false
+      minimax:
+        emotion: "neutral"
+      local:
+        tone: "克制理解"
+
+  anger:
+    label: "生气"
+    tone: "坚定克制，有边界"
+    description: "不吼叫；用更稳的重音和短句表达明确立场。"
+    speed: 1.06
+    pitch_semitones: 0
+    volume_db: 1
+    aliases:
+      - "anger"
+      - "angry"
+      - "mad"
+      - "furious"
+      - "生气"
+      - "愤怒"
+      - "恼火"
+      - "气愤"
+    provider_overrides:
+      edge:
+        voice: "zh-CN-XiaoxiaoNeural"
+        pitch: "+1Hz"
+        volume: "+2%"
+      azure:
+        style: "serious"
+        style_degree: 1.5
+        pitch: "+0%"
+      openai:
+        voice: "onyx"
+        instructions: "Speak in Mandarin Chinese with controlled firmness and clear boundaries. Short, grounded phrases and measured emphasis. Do not shout or sound aggressive."
+      elevenlabs:
+        stability: 0.50
+        similarity_boost: 0.82
+        style: 0.55
+        use_speaker_boost: true
+      minimax:
+        emotion: "angry"
+      local:
+        tone: "坚定克制"
