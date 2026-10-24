@@ -19,7 +19,7 @@ python -m pytest -q
 
 ```text
 ................................................................         [100%]
-60 passed, 1 skipped, 1 warning in ~3.4s
+60 passed, 1 skipped, 1 warning (final verification: 4.02s)
 ```
 
 跳过项是 `tests/test_live_edge.py`（默认不访问外网）。warning 为 Starlette
@@ -34,7 +34,7 @@ python -m pytest -q -m live -s
 
 ```text
 .
-1 passed, 60 deselected, 1 warning in ~1.4s
+1 passed, 60 deselected, 1 warning (final verification: 1.72s)
 ```
 
 覆盖：真实网络、真实 MP3、音频文件 > 1 KB、端到端首响 < 15 s。
