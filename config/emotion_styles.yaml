@@ -77,6 +77,13 @@ emotions:
       - "喜悦"
       - "愉快"
       - "欢喜"
+      # OmniNexus v1 compatibility bridge (gratitude -> joy).
+      - "gratitude"
+      - "grateful"
+      - "thankful"
+      - "感激"
+      - "感谢"
+      - "谢谢"
     provider_overrides:
       edge:
         voice: "zh-CN-XiaoxiaoNeural"
@@ -281,6 +288,14 @@ emotions:
       - "低落"
       - "遗憾"
       - "沮丧"
+      # OmniNexus v1 compatibility bridge (fear -> sadness).
+      - "fear"
+      - "fearful"
+      - "afraid"
+      - "scared"
+      - "恐惧"
+      - "害怕"
+      - "担忧"
     provider_overrides:
       edge:
         voice: "zh-CN-XiaoxiaoNeural"
@@ -438,6 +453,12 @@ emotions:
       - "失望"
       - "委屈"
       - "郁闷"
+      # OmniNexus v1 compatibility bridge (confusion -> frustration).
+      - "confusion"
+      - "confused"
+      - "困惑"
+      - "疑惑"
+      - "不解"
     provider_overrides:
       edge:
         voice: "zh-CN-XiaoxiaoNeural"

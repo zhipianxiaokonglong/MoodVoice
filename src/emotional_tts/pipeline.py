@@ -31,10 +31,12 @@ from .contracts import (
     DiagnosticsPayload,
     InputEvent,
     OutputEvent,
+    PrivacyPayload,
     StylePayload,
     TimingPayload,
 )
 from .errors import CacheError, ProviderError, ValidationError
+from .monitoring import MappingMonitor
 from .providers.base import SynthesisRequest, TTSProvider
 from .providers.registry import ProviderRegistry
 from .rendering import RenderResult, shape_content
@@ -92,6 +94,7 @@ class OutputPipeline:
         self.registry = registry
         self.cache = cache
         self.records = records
+        self.mapping_monitor = MappingMonitor()
 
     def prepare(
         self,
@@ -113,6 +116,26 @@ class OutputPipeline:
         route = self.router.route(event.tags.intent)
         emotion = self.styles.resolve(event.tags.emotion)
 
+        session_provided = bool(event.session_id)
+        session_source = "provided" if session_provided else "derived"
+        session_id = event.session_id or str(event.event_id)
+
+        if not emotion.mapping_hit:
+            self.mapping_monitor.record(
+                event_id=str(event.event_id),
+                source_tag=emotion.source_tag,
+                normalized_tag=normalize_tag(event.tags.emotion),
+                resolved_emotion=emotion.key,
+                reason=emotion.fallback_reason,
+            )
+            logger.warning(
+                "emotion tag fallback event_id=%s tag=%r resolved=%s reason=%s",
+                event.event_id,
+                emotion.source_tag,
+                emotion.key,
+                emotion.fallback_reason,
+            )
+
         requested = (
             (provider_override or event.provider or self.config.tts.provider).strip().lower()
         )
@@ -125,6 +148,7 @@ class OutputPipeline:
         }
         diagnostics = DiagnosticsPayload(
             emotion_mapping={
+                "version": self.styles.model.version,
                 "source_tag": emotion.source_tag,
                 "normalized_tag": normalize_tag(event.tags.emotion),
                 "resolved_emotion": emotion.key,
@@ -146,6 +170,11 @@ class OutputPipeline:
             speech={
                 **rendered.meta,
                 "intent_known": self.router.is_known(event.tags.intent),
+            },
+            session={
+                "provided": session_provided,
+                "source": session_source,
+                "id": session_id,
             },
             privacy={
                 "content_logged": False,
@@ -553,11 +582,26 @@ class OutputPipeline:
                         {
                             "provider": name,
                             "destination": provider.capabilities.data_destination,
+                            "external_egress": provider.external_egress(),
                         }
                     )
         diagnostics.privacy["text_sent_to"] = destinations
         if route_reason:
             diagnostics.privacy["route_reason"] = route_reason
+
+        external = any(item["external_egress"] for item in destinations)
+        if destinations:
+            places = "、".join(item["destination"] for item in destinations)
+            privacy_summary = f"文本已发往：{places}"
+        else:
+            privacy_summary = "尚未向 TTS 厂商或本地服务发送文本"
+        privacy = PrivacyPayload(
+            content_logged=False,
+            cache_scope="local_only",
+            text_sent_to=destinations,
+            external_egress=external,
+            summary=privacy_summary,
+        )
 
         route = prepared.route
         if route_reason:
@@ -565,7 +609,7 @@ class OutputPipeline:
 
         return OutputEvent(
             event_id=str(prepared.event.event_id),
-            session_id=str(prepared.event.session_id),
+            session_id=prepared.event.session_id or str(prepared.event.event_id),
             text=prepared.event.content,
             speech_text=prepared.rendered.speech_text,
             audio_ref=self.cache.ref_for(audio.filename) if audio else None,
@@ -579,6 +623,7 @@ class OutputPipeline:
             status=status,
             degraded=degraded,
             degradation=degradation,
+            privacy=privacy,
             diagnostics=diagnostics,
             timings=TimingPayload(
                 first_chunk_ms=first_chunk_ms,

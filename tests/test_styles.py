@@ -22,6 +22,24 @@ def test_comfort_maps_to_canonical_profile(styles):
     assert "温柔" in resolved.tone
 
 
+def test_omninexus_v1_labels_map_to_canonical_emotions(styles):
+    expected = {
+        "joy": "joy",
+        "sadness": "sadness",
+        "anger": "anger",
+        "fear": "sadness",
+        "surprise": "surprise",
+        "confusion": "frustration",
+        "frustration": "frustration",
+        "gratitude": "joy",
+        "neutral": "neutral",
+    }
+    for source, canonical in expected.items():
+        resolved = styles.resolve(source)
+        assert resolved.mapping_hit is True, source
+        assert resolved.key == canonical, source
+
+
 def test_unknown_tag_falls_back_without_hiding_the_problem(styles):
     resolved = styles.resolve("not-a-real-emotion")
     assert resolved.key == "neutral"

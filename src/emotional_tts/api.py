@@ -7,6 +7,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Query, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
@@ -17,7 +18,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .cache import AudioCache, mime_for_format
 from .config import AppConfig, Secrets, load_config
 from .contracts import InputEvent, OutputEvent
-from .errors import CacheError, MoodVoiceError, ProviderError, ValidationError
+from .errors import CacheError, ConfigError, MoodVoiceError, ProviderError, ValidationError
 from .pipeline import OutputPipeline, SynthesisHooks
 from .providers.base import SynthesisRequest
 from .providers.registry import ProviderRegistry, build_registry
@@ -101,7 +102,8 @@ def create_app(
     @api.middleware("http")
     async def security_middleware(request: Request, call_next):
         origin = request.headers.get("origin")
-        if origin and _normalize_origin(origin) not in allowed_origins:
+        if origin and not _is_trusted_origin(origin, allowed_origins):
+            logger.warning("rejected origin=%r path=%s", origin[:200], request.url.path)
             return JSONResponse(
                 status_code=403,
                 content={
@@ -117,9 +119,12 @@ def create_app(
         response.headers.setdefault(
             "Permissions-Policy", "microphone=(), camera=(), geolocation=()"
         )
-        connect_sources = ["'self'"] + [
-            _websocket_origin(origin) for origin in sorted(allowed_origins)
-        ]
+        page_origin = origin
+        if not page_origin:
+            host = request.headers.get("host", "")
+            if host:
+                page_origin = f"{request.url.scheme}://{host}"
+        connect_sources = _csp_connect_sources(allowed_origins, page_origin=page_origin)
         response.headers.setdefault(
             "Content-Security-Policy",
             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
@@ -212,12 +217,25 @@ def create_app(
                 "max_input_chars": app_config.app.max_input_chars,
                 "max_tts_chars": app_config.app.max_tts_chars,
             },
+            "emotion_mapping": {
+                "version": styles.model.version,
+                "canonical_count": len(styles.emotions),
+                "alias_count": len(styles.describe()["aliases"]),
+                "fallbacks": pipeline.mapping_monitor.snapshot(),
+            },
             "privacy": {
                 "bind": f"{app_config.server.host}:{app_config.server.port}",
                 "content_logged": False,
                 "cache_scope": "local_only",
                 "key_source": "environment_or_local_dotenv",
                 "egress": "only the TTS provider selected for synthesis",
+                "default_external_egress": (
+                    registry.auto_provider().external_egress()
+                    if registry.auto_provider() is not None
+                    else False
+                ),
+                "allowed_origins": sorted(allowed_origins),
+                "origin_wildcards_enabled": any("*" in item for item in allowed_origins),
             },
         }
 
@@ -233,6 +251,9 @@ def create_app(
         )
         response.headers["X-MoodVoice-Status"] = output.status
         response.headers["X-MoodVoice-Degraded"] = "1" if output.degraded else "0"
+        response.headers["X-MoodVoice-Egress"] = (
+            "external" if output.privacy.external_egress else "none"
+        )
         return output
 
     @api.get("/api/v1/audio/{filename}")
@@ -299,7 +320,8 @@ def create_app(
     @api.websocket("/ws/v1/outputs")
     async def ws_outputs(websocket: WebSocket) -> None:
         origin = websocket.headers.get("origin")
-        if origin and _normalize_origin(origin) not in allowed_origins:
+        if origin and not _is_trusted_origin(origin, allowed_origins):
+            logger.warning("rejected websocket origin=%r", origin[:200])
             await websocket.close(code=1008, reason="origin not allowed")
             return
         await websocket.accept()
@@ -498,11 +520,70 @@ def _allowed_origins(config: AppConfig) -> set[str]:
         f"http://localhost:{port}",
     }
     extra = os.getenv("EMOTION_TTS_ALLOWED_ORIGINS", "")
+    seen: set[str] = set()
     for item in extra.split(","):
         item = item.strip()
-        if item:
-            origins.add(_normalize_origin(item))
+        if not item:
+            continue
+        normalized = _normalize_origin(item)
+        if "*" in normalized:
+            if normalized not in _LOOPBACK_WILDCARDS:
+                raise ConfigError(
+                    "EMOTION_TTS_ALLOWED_ORIGINS 只允许本机端口通配: "
+                    "http://localhost:* 或 http://127.0.0.1:*"
+                )
+        else:
+            parts = urlsplit(normalized)
+            if parts.scheme not in {"http", "https"} or not parts.hostname:
+                raise ConfigError(f"EMOTION_TTS_ALLOWED_ORIGINS 含非法 Origin: {item[:80]}")
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        origins.add(normalized)
     return origins
+
+
+_LOOPBACK_WILDCARDS = {
+    "http://localhost:*",
+    "http://127.0.0.1:*",
+}
+
+
+def _is_trusted_origin(origin: str, allowed_origins: set[str]) -> bool:
+    normalized = _normalize_origin(origin)
+    if normalized in allowed_origins:
+        return True
+    # Port wildcards are opt-in only, and only for loopback hosts. A remote
+    # proxy must be configured with its exact origin.
+    for pattern in _LOOPBACK_WILDCARDS:
+        if pattern not in allowed_origins:
+            continue
+        prefix = pattern[:-2]  # "http://localhost:*" -> "http://localhost"
+        if normalized.startswith(prefix + ":"):
+            port = normalized.rsplit(":", 1)[-1]
+            if port.isdigit() and 1 <= int(port) <= 65535:
+                return True
+    return False
+
+
+def _csp_connect_sources(allowed_origins: set[str], *, page_origin: str | None = None) -> list[str]:
+    """Build concrete CSP websocket sources without invalid wildcard tokens.
+
+    Browsers reject ``ws://localhost:*``. Port wildcards are enforced by the
+    request-level Origin guard; when a trusted page origin is known, CSP gets
+    its concrete WebSocket source so Vite/proxy pages can still connect.
+    """
+
+    sources = ["'self'"]
+    for origin in sorted(allowed_origins):
+        if origin in _LOOPBACK_WILDCARDS:
+            continue
+        sources.append(_websocket_origin(origin))
+    if page_origin and _is_trusted_origin(page_origin, allowed_origins):
+        ws_source = _websocket_origin(_normalize_origin(page_origin))
+        if ws_source not in sources:
+            sources.append(ws_source)
+    return sources
 
 
 def _normalize_origin(origin: str) -> str:

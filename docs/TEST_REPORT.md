@@ -1,11 +1,11 @@
 # 测试报告
 
-- 日期：2026-10-24
+- 日期：2026-10-24（M-01~M-05 修复复验：2026-11-03）
 - 环境：Windows 11 (10.0.26200)，Python 3.12.14
 - 依赖：FastAPI 0.162.0，Pydantic 2.14.1，httpx 0.28.1，edge-tts 7.3.1，pytest 8.4.2
-- 代码版本：v1.0.0
-- 结论：**通过**。60 个自动化测试通过，1 个依赖真实 edge-tts 的 live 测试通过；
-  浏览器端 5 个场景通过；无外部资源请求、无控制台错误。
+- 代码版本：v1.0.0 + 审计修复
+- 结论：**通过**。70 个自动化测试通过，1 个依赖真实 edge-tts 的 live 测试通过；
+  浏览器端覆盖流式、9 类标签、纯文本路由、纯文本降级、移动端，无控制台错误。
 
 ---
 
@@ -18,8 +18,8 @@ python -m pytest -q
 ```
 
 ```text
-................................................................         [100%]
-60 passed, 1 skipped, 1 warning (final verification: 4.02s)
+.............................s.......................................     [100%]
+70 passed, 1 skipped, 1 warning in 4.25s
 ```
 
 跳过项是 `tests/test_live_edge.py`（默认不访问外网）。warning 为 Starlette
@@ -34,7 +34,7 @@ python -m pytest -q -m live -s
 
 ```text
 .
-1 passed, 60 deselected, 1 warning (final verification: 1.72s)
+1 passed, 70 deselected, 1 warning (final verification: 1.47s)
 ```
 
 覆盖：真实网络、真实 MP3、音频文件 > 1 KB、端到端首响 < 15 s。
@@ -60,7 +60,7 @@ All checks passed!
 | 安慰 | 今天辛苦了，先慢慢呼吸一下。 | 808.8 ms | 1050.1 ms | 成功 |
 | 开心 | 太好了，我们真的做到了！ | 769.8 ms | 1008.4 ms | 成功 |
 | 兴奋 | 太棒了，这个好消息一定要庆祝一下！ | 862.8 ms | 1099.0 ms | 成功 |
-| 浏览器 UI 流式 | 默认安慰文本 | 790 ms | 约 1.0 s | MSE 播放成功 |
+| 浏览器 UI 流式（修复后复验） | 默认安慰文本 | 1306 ms | 约 1.5 s | MSE 播放成功 |
 
 > edge-tts 依赖公网，存在抖动。一次 UI 运行观测到约 7.0 s 的首响，仍在 12 s
 > 超时阈值内且成功；这说明必须保留超时/降级，而不能把首响当成固定 SLA。
@@ -73,7 +73,12 @@ All checks passed!
 | 需求 | 测试/证据 | 结果 |
 |---|---|---|
 | 情感标签 → TTS 风格 | `test_comfort_maps_to_canonical_profile`、`test_provider_params_merge_mapping_and_provider_direction`、`test_rest_contract...` | 通过 |
+| 上游 9 类标签全命中 | `test_omninexus_v1_labels_map_to_canonical_emotions`、`test_upstream_emotion_labels_all_resolve` | 通过 |
 | 未知标签可诊断 | `test_unknown_tag_falls_back_without_hiding_the_problem`、`test_unknown_emotion_is_visible_in_diagnostics` | 通过 |
+| 标签回退可观测 | `test_mapping_fallback_is_observable_in_health`、`test_mapping_monitor_is_bounded...` | 通过 |
+| 非 UUID/缺失 session | `test_missing_session_id_is_derived_and_non_uuid_is_accepted` | 通过 |
+| 文本去向显式可见 | `test_privacy_egress_is_exposed_top_level_and_as_header`、`test_failed_provider_privacy...`、UI 场景 | 通过 |
+| Origin 本机端口通配 | `test_local_origin_wildcard_is_opt_in`、`test_remote_origin_wildcard...` | 通过 |
 | 内容类型 → 渲染 | `test_rendering.py` 7 项 | 通过 |
 | 代码不逐行朗读 | `test_code_is_rendered_without_reading_symbols_aloud`、`test_bare_code...`、UI 场景 | 通过 |
 | 意图 → 路由 | `test_routing.py` 3 项、`test_tool_intent...`、UI 场景 | 通过 |
@@ -166,14 +171,34 @@ All checks passed!
 
 ---
 
-## 6. 恢复与验证记录
+## 6. 审计 M-01~M-05 修复记录
+
+| ID | 修复 | 验证 |
+|---|---|---|
+| M-01 | 增加 `fear→sadness`、`confusion→frustration`、`gratitude→joy` 别名；UI 同步提供 3 个兼容标签 | 9 类标签参数化测试、UI 手动验证 |
+| M-02 | 回退 warning + 进程内有界 `MappingMonitor` + `/api/health.emotion_mapping.fallbacks` | `test_mapping_fallback_is_observable_in_health`、`test_mapping_monitor_*` |
+| M-03 | `session_id` 改为可选字符串，缺失时由 `event_id` 派生；`diagnostics.session.source` 标记来源 | `test_missing_session_id...` |
+| M-04 | 顶层 `privacy`（`external_egress/text_sent_to/summary`）+ `X-MoodVoice-Egress` + UI 去向条 + edge 明示在线 | 顶层 privacy/header 测试、UI 三态（已出网/未发送/本机） |
+| M-05 | Origin 精确白名单 + 显式本机端口通配；非法远程通配启动失败；拒绝日志 | 通配/拒绝/启动校验测试 |
+
+### 6.1 复验结果
+
+- 全量：`70 passed, 1 skipped`
+- live edge：`1 passed`
+- 浏览器：流式 MSE、`gratitude→开心`、`fear→悲伤`、tool 路由“未发送”、未配置厂商降级“未发送”、移动端无溢出、控制台错误 0
+- 静态：`ruff check` / `ruff format --check` 通过
+- 首响复验：流式 1306 ms
+
+---
+
+## 7. 恢复与验证记录
 
 在最终清理阶段，一次错误的 PowerShell `-Include` 清理命令误删了工作区文件。项目随后
-从本会话的写文件/改文件事件按时间顺序恢复，重新执行了格式化、静态检查、60 项离线
+从本会话的写文件/改文件事件按时间顺序恢复，重新执行了格式化、静态检查、全量离线
 测试、真实 edge-tts 冒烟与 CLI 端到端验证；恢复后的行为与清理前一致。该记录仅用于
 说明测试证据来源，不影响仓库内容。
 
-## 7. 已知限制
+## 8. 已知限制
 
 1. **没有商业厂商真实密钥**：OpenAI/ElevenLabs/Azure/MiniMax 的成功路径是 mock
    HTTP 契约测试。上线前应使用最小额度密钥做一次真机联调，并补充到本报告。
@@ -188,7 +213,7 @@ All checks passed!
 
 ---
 
-## 8. 复现
+## 9. 复现
 
 ```powershell
 python -m venv .venv
@@ -197,7 +222,6 @@ pip install -r requirements.txt
 pip install -e .
 pip install pytest pytest-asyncio
 python -m pytest -q
-
 $env:MOODVOICE_LIVE_TESTS="1"
 python -m pytest -q -m live -s
 

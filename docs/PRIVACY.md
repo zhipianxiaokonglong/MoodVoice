@@ -131,7 +131,7 @@ SQLite 表 `output_records` 保存：
 
 | 选择 | 外部出口 | 文本是否离开本机 |
 |---|---|---|
-| `edge` | 微软 Edge 在线朗读 | **是** |
+| `edge` | 微软 Edge 在线朗读 | **是**（免密钥不等于本地） |
 | `openai` | OpenAI API | 是 |
 | `elevenlabs` | ElevenLabs API | 是 |
 | `azure` | Azure AI Speech | 是 |
@@ -142,13 +142,17 @@ SQLite 表 `output_records` 保存：
 - 没有配置的厂商不会被调用；
 - 自动模式只选择已就绪的厂商；
 - 降级链必须显式配置，避免“失败后偷偷发到另一家”；
-- 本地服务如果配置成远程 URL，文本同样会离开本机；请自行确认。
+- 本地服务如果配置成远程 URL，文本同样会离开本机；请自行确认；
+- 每次输出都带顶层 `privacy`（`external_egress`、`text_sent_to`、`summary`）和
+  `X-MoodVoice-Egress` 响应头，UI 结果区直接显示“已出网/本机/未发送”。
 
 ### 7.2 本地入口
 
 - 默认绑定 `127.0.0.1`，不接受局域网/公网连接；
 - `Origin` 校验：只允许同源（`127.0.0.1:port` / `localhost:port`）和
   `EMOTION_TTS_ALLOWED_ORIGINS` 显式列出的来源；
+- 端口通配 `http://localhost:*` / `http://127.0.0.1:*` 必须显式开启，且只对本机
+  生效；远程代理必须写精确 Origin；
 - 拒绝跨站浏览器请求，降低 DNS rebinding/恶意网页调用本地 TTS 的风险；
 - CSP 限制脚本、样式、连接、媒体来源；
 - 没有登录/配额/多租户鉴权——这是单机 Demo 的已知边界。

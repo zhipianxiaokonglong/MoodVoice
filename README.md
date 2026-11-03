@@ -49,7 +49,7 @@ python -m emotional_tts demo "今天辛苦了，先慢慢呼吸一下。" --emot
 
 - **6 个内置适配器**：`edge`、OpenAI TTS、ElevenLabs、Azure Neural TTS、MiniMax 海螺、本地 HTTP。
 - **统一流式接口**：厂商字节流边到边写入本地缓存；WebSocket 边合成边播放（MSE），首响优先。
-- **可配置情感映射**：`config/emotion_styles.yaml` 定义 12 类情感及中英文别名、语速/音高/音量、厂商覆盖参数。
+- **可配置情感映射**：`config/emotion_styles.yaml` 定义 12 类情感、133 个中英文别名、语速/音高/音量、厂商覆盖参数。
 - **意图路由**：`config/routes.yaml` 配置 `reply / tool / linkage` 的下游目的地与是否朗读。
 - **可插拔厂商**：实现 `TTSProvider` 的 `stream()` 即可接入；能力声明区分原生情感风格、指令、韵律和风格强度。
 - **纯文本降级**：失败不会产生半截音频；流中断会删除不完整文件并记录结构化结果。
@@ -91,6 +91,8 @@ flowchart LR
 }
 ```
 
+> `session_id` 可省略；缺失时由 `event_id` 派生，也接受非 UUID 字符串。
+
 输出（四个必需字段保持不变，其余为可安全忽略的增量字段）：
 
 ```json
@@ -117,6 +119,11 @@ flowchart LR
   "provider": "edge",
   "status": "synthesized",
   "degraded": false,
+  "privacy": {
+    "external_egress": true,
+    "text_sent_to": [{"provider": "edge", "destination": "微软 Edge 在线朗读服务"}],
+    "summary": "文本已发往：微软 Edge 在线朗读服务"
+  },
   "diagnostics": {
     "emotion_mapping": {"mapping_hit": true, "fallback_reason": null},
     "provider_attempts": [{"provider": "edge", "outcome": "succeeded"}],
@@ -146,13 +153,16 @@ flowchart LR
 | `apology` | 诚恳放低，认真负责 | 0.93 | `serious` / 1.3 | sincere, accountable | 0.40 |
 
 未知标签不会被静默吞掉：会回退到 `neutral`，同时把 `mapping_hit=false` 和
-`fallback_reason=unknown_tag` 写入输出和记录。
+`fallback_reason=unknown_tag` 写入输出、日志与 `/api/health` 的回退汇总。
+
+上游 OmniNexus v1 的 9 类标签已全部兼容：`fear→sadness`、`confusion→frustration`、
+`gratitude→joy`，其余同名直接命中。
 
 ## 厂商
 
 | ID | 情感表达能力 | 流式 | 密钥 | 说明 |
 |---|---|---|---|---|
-| `edge` | 韵律（音色/语速/音高/音量） | ✅ | 不需要 | 免账号 Demo；在线服务 |
+| `edge` | 韵律（音色/语速/音高/音量） | ✅ | 不需要 | 免账号 Demo；**在线**服务，文本会出网 |
 | `azure` | **原生 `mstts:express-as` 风格** + 强度 | ✅ | 需要 | 情感表达最直接 |
 | `openai` | `instructions` 自然语言表演指令 | ✅ | 需要 | `gpt-4o-mini-tts` |
 | `elevenlabs` | `stability / style / speed` 风格强度 | ✅ | 需要 | 需要 Voice ID |
@@ -196,11 +206,11 @@ $env:MOODVOICE_LIVE_TESTS="1"
 python -m pytest -q -m live -s
 ```
 
-最近一次结果（2026-10-24，Windows / Python 3.12.14）：
+最近一次结果（2026-11-03，Windows / Python 3.12.14）：
 
-- `60 passed, 1 skipped`（跳过 live）
-- live 测试：`1 passed`，真实 edge-tts 首响稳定样本 0.77–0.86 s（网络抖动时可达数秒，仍在超时阈值内）
-- 浏览器端：流式 MSE 播放、代码渲染、意图路由、纯文本降级、移动端均通过，无外部请求
+- `70 passed, 1 skipped`（跳过 live，4.25s）
+- live 测试：`1 passed`，真实 edge-tts 首响稳定样本 0.77–1.31 s（网络抖动时可达数秒，仍在超时阈值内）
+- 浏览器端：流式 MSE 播放、9 类上游标签、意图路由、纯文本降级、隐私去向、移动端均通过，无控制台错误
 - 多厂商切换、显式降级、纯文本降级、流中断清理、日志脱敏、缓存路径穿越、
   API/WS 契约均有测试覆盖
 
@@ -215,6 +225,8 @@ python -m pytest -q -m live -s
 - API 密钥只从本地 `.env` / 环境变量读取，不进浏览器、不进日志、不进 API 响应。
 - 音频缓存位于 `.data/cache/`，UI/API/CLI 均可清除；结构化记录不保存原文。
 - 默认只监听 `127.0.0.1`；非浏览器请求与跨站 Origin 会被拒绝。
+- 每次输出都带 `privacy.external_egress` / `text_sent_to`，REST 另有
+  `X-MoodVoice-Egress`，UI 会直接显示“已出网 / 本机 / 未发送”。
 - 仓库不包含 `.env`、模型权重、用户音频或测试音频。
 
 完整数据流见 [`docs/PRIVACY.md`](docs/PRIVACY.md)。

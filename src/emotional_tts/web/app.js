@@ -51,6 +51,9 @@
     intent: $("intentName"),
     destination: $("destinationName"),
     routeReason: $("routeReason"),
+    egressStrip: $("egressStrip"),
+    egressSummary: $("egressSummary"),
+    egressBadge: $("egressBadge"),
     speech: $("speechText"),
     renderArea: $("renderArea"),
     renderMeta: $("renderMeta"),
@@ -150,7 +153,7 @@
       return;
     }
     els.privacyText.textContent =
-      "自动选择会使用第一个已就绪的厂商；没有任何密钥时回退到免密钥的 edge-tts。文本不会发往其他服务。";
+      "自动选择会使用第一个已就绪的厂商；没有任何密钥时会使用 edge-tts，朗读文本会发往微软在线服务。每次结果都会标明实际去向。";
   }
 
   async function generate(event) {
@@ -341,7 +344,7 @@
       setStatus("纯文本路由", "warn");
     } else if (isFailure) {
       els.textOnlyTitle.textContent = "已降级为纯文本";
-      els.textOnlyReason.textContent =
+        els.textOnlyReason.textContent =
         output.degradation?.message ||
         "TTS 暂时不可用，完整文本已保留，可直接展示或稍后重试。";
       setStatus("纯文本降级", "warn");
@@ -374,6 +377,7 @@
     els.intent.textContent = output.route?.intent || "—";
     els.destination.textContent = output.route?.destination || "—";
     els.routeReason.textContent = output.route?.reason || "";
+    renderPrivacy(output.privacy);
     els.speech.textContent = output.speech_text || output.text || "—";
     els.providerBadge.textContent = output.provider
       ? providerLabel(output.provider)
@@ -411,12 +415,27 @@
         attempts: diagnostics.provider_attempts,
         adapter: diagnostics.adapter,
         speech: diagnostics.speech,
-        privacy: diagnostics.privacy,
+        privacy: output.privacy || diagnostics.privacy,
         timings: output.timings,
       },
       null,
       2
     );
+  }
+
+  function renderPrivacy(privacy) {
+    if (!privacy) {
+      els.egressStrip.dataset.egress = "local";
+      els.egressSummary.textContent = "尚未向 TTS 厂商或本地服务发送文本";
+      els.egressBadge.textContent = "未发送";
+      return;
+    }
+    const external = Boolean(privacy.external_egress);
+    els.egressStrip.dataset.egress = external ? "external" : "local";
+    els.egressSummary.textContent =
+      privacy.summary || (external ? "文本已发往外部 TTS 厂商" : "文本仅在本机处理");
+    const sent = Array.isArray(privacy.text_sent_to) && privacy.text_sent_to.length > 0;
+    els.egressBadge.textContent = sent ? (external ? "已出网" : "本机") : "未发送";
   }
 
   function renderBlocks(render, fallbackText) {

@@ -4,6 +4,7 @@ import json
 import sqlite3
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 from emotional_tts.api import create_app
@@ -141,6 +142,115 @@ def test_origin_guard_and_cache_clearing(config, registry):
         assert client.get("/api/v1/records").json()["total"] == 0
 
 
+def test_missing_session_id_is_derived_and_non_uuid_is_accepted(config, registry):
+    app = app_for(config, registry)
+    with TestClient(app) as client:
+        no_session = payload()
+        no_session.pop("session_id")
+        response = client.post(
+            "/api/v1/outputs?provider=fake_a",
+            json=no_session,
+        )
+        assert response.status_code == 200
+        assert response.json()["session_id"] == response.json()["event_id"]
+        assert response.json()["diagnostics"]["session"]["source"] == "derived"
+
+        custom = client.post(
+            "/api/v1/outputs?provider=fake_a",
+            json=payload(session_id="device-session-abc"),
+        )
+        assert custom.status_code == 200
+        assert custom.json()["session_id"] == "device-session-abc"
+
+
+def test_privacy_egress_is_exposed_top_level_and_as_header(config, registry):
+    app = app_for(config, registry)
+    with TestClient(app) as client:
+        response = client.post("/api/v1/outputs?provider=fake_a", json=payload())
+        data = response.json()
+        assert data["privacy"]["external_egress"] is True
+        assert data["privacy"]["text_sent_to"][0]["provider"] == "fake_a"
+        assert response.headers["x-moodvoice-egress"] == "external"
+
+        text_only = client.post(
+            "/api/v1/outputs?provider=fake_a",
+            json=payload(tags={"emotion": "joy", "type": "text", "intent": "tool"}),
+        )
+        assert text_only.json()["privacy"]["external_egress"] is False
+        assert text_only.json()["privacy"]["text_sent_to"] == []
+        assert text_only.headers["x-moodvoice-egress"] == "none"
+
+
+def test_mapping_fallback_is_observable_in_health(config, registry):
+    app = app_for(config, registry)
+    with TestClient(app) as client:
+        client.post(
+            "/api/v1/outputs?provider=fake_a",
+            json=payload(tags={"emotion": "mystery-tag", "type": "text", "intent": "tool"}),
+        )
+        health = client.get("/api/health").json()
+        fallbacks = health["emotion_mapping"]["fallbacks"]
+        assert fallbacks["total"] >= 1
+        assert any(item["source_tag"] == "mystery-tag" for item in fallbacks["recent"])
+
+
+def test_local_origin_wildcard_is_opt_in(config, registry, monkeypatch):
+    from emotional_tts import api as api_module
+
+    app = app_for(config, registry)
+    with TestClient(app) as client:
+        blocked = client.get("/api/health", headers={"Origin": "http://localhost:1420"})
+        assert blocked.status_code == 403
+        monkeypatch.setenv(
+            "EMOTION_TTS_ALLOWED_ORIGINS",
+            "http://localhost:*,http://127.0.0.1:*",
+        )
+        # _allowed_origins is intentionally evaluated per app creation.
+        app2 = api_module.create_app(config=config, registry=registry)
+        with TestClient(app2) as client2:
+            allowed = client2.get("/api/health", headers={"Origin": "http://localhost:1420"})
+            assert allowed.status_code == 200
+            csp = allowed.headers["content-security-policy"]
+            assert "ws://localhost:1420" in csp
+            assert "*" not in csp
+            blocked_remote = client2.get("/api/health", headers={"Origin": "http://evil.example"})
+            assert blocked_remote.status_code == 403
+
+
+def test_remote_origin_wildcard_is_rejected_at_startup(config, registry, monkeypatch):
+    from emotional_tts.api import create_app
+    from emotional_tts.errors import ConfigError
+
+    monkeypatch.setenv("EMOTION_TTS_ALLOWED_ORIGINS", "https://evil.example:*")
+    with pytest.raises(ConfigError, match="只允许本机端口通配"):
+        create_app(config=config, registry=registry)
+
+
+def test_local_provider_external_egress_follows_hostname():
+    from emotional_tts.config import ProviderConfig
+    from emotional_tts.providers.local_http import LocalHTTPProvider
+
+    localhost = LocalHTTPProvider(
+        ProviderConfig(base_url="http://127.0.0.1:9880/synthesize", format="wav")
+    )
+    remote = LocalHTTPProvider(
+        ProviderConfig(base_url="http://192.168.1.20:9880/synthesize", format="wav")
+    )
+    assert localhost.external_egress() is False
+    assert remote.external_egress() is True
+
+
+def test_failed_provider_privacy_reflects_contacted_vendor(config, registry):
+    app = app_for(config, registry)
+    registry.get("fake_a").fail_at = 0
+    with TestClient(app) as client:
+        data = client.post("/api/v1/outputs?provider=fake_a", json=payload()).json()
+        assert data["status"] == "text_fallback"
+        assert data["privacy"]["external_egress"] is True
+        assert data["privacy"]["text_sent_to"][0]["provider"] == "fake_a"
+        assert client.get("/api/health").json()["privacy"]["default_external_egress"] is True
+
+
 def test_websocket_streams_metadata_then_audio(config, registry):
     app = app_for(config, registry)
     with (
@@ -184,6 +294,26 @@ def test_diagnostics_endpoint_explains_mapping(config, registry):
         assert body["checks"][0]["ok"] is True
         assert body["request_preview"]["effective"]
         assert "占位文本" not in json.dumps(body)  # no user text or placeholder echo
+
+
+def test_upstream_emotion_labels_all_resolve(config, registry):
+    app = app_for(config, registry)
+    labels = [
+        "joy",
+        "sadness",
+        "anger",
+        "fear",
+        "surprise",
+        "confusion",
+        "frustration",
+        "gratitude",
+        "neutral",
+    ]
+    with TestClient(app) as client:
+        for label in labels:
+            body = client.get(f"/api/v1/diagnostics/style?emotion={label}&provider=fake_a").json()
+            assert body["ok"] is True, label
+            assert body["resolved"]["mapping_hit"] is True, label
 
 
 def test_records_do_not_store_content_at_rest(config, registry):

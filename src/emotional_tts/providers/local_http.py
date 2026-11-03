@@ -44,6 +44,7 @@ class LocalHTTPProvider(TTSProvider):
         emotion_styles="把 emotion/tone/speed 传给本地服务；表达力取决于本地模型",
         requires_key=False,
         data_destination="用户指定的本地 HTTP 服务（不经 MoodVoice 转发）",
+        external_egress=False,
         formats=("wav", "mp3", "ogg", "opus", "flac"),
         notes="用于 GPT-SoVITS / CosyVoice / F5-TTS 的自定义封装。",
     )
@@ -68,6 +69,14 @@ class LocalHTTPProvider(TTSProvider):
     @property
     def audio_format(self) -> str:
         return self.format
+
+    def external_egress(self) -> bool:
+        """A local URL may still point at another machine or a LAN host."""
+
+        host = (urlsplit(self.base_url).hostname or "").lower()
+        if not host:
+            return False
+        return host not in {"localhost", "127.0.0.1", "::1"}
 
     def readiness(self) -> tuple[bool, list[str]]:
         missing: list[str] = []

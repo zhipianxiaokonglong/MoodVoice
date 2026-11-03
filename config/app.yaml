@@ -41,6 +41,7 @@ tts:
 providers:
   # Free, keyless demo channel. edge-tts is an online Microsoft service:
   # text leaves this machine. For fully local speech, use providers.local.
+  # Set enabled: false if this deployment must have zero external egress.
   edge:
     enabled: true
     voice: "zh-CN-XiaoxiaoNeural"

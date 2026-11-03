@@ -19,6 +19,7 @@ class ProviderCapabilities:
     emotion_styles: str
     requires_key: bool
     data_destination: str
+    external_egress: bool = True
     formats: tuple[str, ...] = ("mp3",)
     notes: str = ""
 
@@ -29,6 +30,7 @@ class ProviderCapabilities:
             "emotion_styles": self.emotion_styles,
             "requires_key": self.requires_key,
             "data_destination": self.data_destination,
+            "external_egress": self.external_egress,
             "formats": list(self.formats),
             "notes": self.notes,
         }
@@ -74,6 +76,11 @@ class TTSProvider(ABC):
 
         return "mp3"
 
+    def external_egress(self) -> bool:
+        """Whether this provider sends text outside the current machine."""
+
+        return self.capabilities.external_egress
+
     def resolve_voice(self, request: SynthesisRequest) -> str | None:
         return request.voice
 
@@ -110,10 +117,12 @@ class TTSProvider(ABC):
 
     def public_descriptor(self) -> dict[str, Any]:
         ready, missing = self.readiness()
+        capabilities = self.capabilities.public()
+        capabilities["external_egress"] = self.external_egress()
         return {
             "id": self.name,
             "display_name": self.display_name,
             "ready": ready,
             "missing": missing,
-            "capabilities": self.capabilities.public(),
+            "capabilities": capabilities,
         }

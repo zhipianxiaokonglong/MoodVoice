@@ -51,13 +51,17 @@ web/              无构建 Demo UI
 ```python
 InputEvent(
   event_id: UUID,
-  session_id: UUID,
+  session_id: str = "",         # 可选；缺失时由 event_id 派生
   content: str,                 # 1..20000，pipeline 再检查 max_input_chars
   stream: bool = True,          # 上游流式标志；本层接收聚合后的完整文本
   tags: InputTags(emotion, type, intent),
   provider: str | None = None,  # 可选扩展；也可用 ?provider= 覆盖
 )
 ```
+
+`session_id` 接受非 UUID 字符串，缺失时输出层用 `event_id` 派生，并在
+`diagnostics.session.source` 标记 `provided/derived`。这样组装层使用设备会话键
+或暂时漏传时，不会把整轮打成“有文字没声音”。
 
 `stream` 表示上游生成方式；当前 REST 与 WS 都接收完整 `content`。如果未来上游改成
 token 流，应在接入层先聚合，不应让 TTS 层承担 LLM 流解析。
@@ -77,8 +81,12 @@ token 流，应在接入层先聚合，不应让 TTS 层承担 LLM 流解析。
 - `render`：`type/mode/language/blocks`；
 - `route`：`intent/destination/synthesize/reason`；
 - `provider/requested_provider/status/degraded/degradation`；
-- `diagnostics`：标签映射、厂商参数、尝试记录、隐私边界；
+- `privacy`：顶层文本去向摘要（`external_egress`、`text_sent_to`、`summary`），
+  与 `diagnostics.privacy` 同源；
+- `diagnostics`：标签映射、厂商参数、尝试记录、会话来源、隐私边界；
 - `timings`：端到端首包与总耗时。
+
+REST 额外返回 `X-MoodVoice-Egress: external|none`，便于组装层直接判断是否出网。
 
 消费方应忽略不认识的增量字段；不要把 `audio_ref` 当永久链接（缓存会过期/被清除）。
 
@@ -100,7 +108,18 @@ token 流，应在接入层先聚合，不应让 TTS 层承担 LLM 流解析。
 4. 同时输出：
    - `style.source_tag`：上游原始值；
    - `style.mapping_hit`：是否命中；
-   - `diagnostics.emotion_mapping.fallback_reason`：`missing_tag` / `unknown_tag` / `null`。
+   - `diagnostics.emotion_mapping.fallback_reason`：`missing_tag` / `unknown_tag` / `null`；
+   - `diagnostics.emotion_mapping.version`：映射表版本。
+5. `mapping_hit=false` 时写一条 warning 日志，并进入进程内 `MappingMonitor`；
+   `/api/health.emotion_mapping.fallbacks` 提供最近 32 条与按标签计数。
+
+OmniNexus v1 标签兼容桥接（不新增 canonical 类型）：
+
+| 上游 | canonical | 原因 |
+|---|---|---|
+| `fear` / `fearful` / `afraid` / `scared` | `sadness` | 低唤醒、低沉表达 |
+| `confusion` / `confused` | `frustration` | 克制、耐心回应 |
+| `gratitude` / `grateful` / `thankful` | `joy` | 温暖、轻快回应 |
 
 **不要**在适配器里临时猜测标签含义。未知标签必须走配置或显式回退，且要在
 诊断里可见。
@@ -503,7 +522,15 @@ Server → Client：
 - 用 `start.audio.mime` 初始化 MSE/解码器；
 - 收到 `done` 后把 `audio_ref` 作为下载/回放地址；
 - 收到 `error` 时停止音频、展示 `preparing.output.text`；
+- 从 `done.output.privacy` 读取实际文本去向，并展示 `external_egress`；
 - 每次生成使用新连接，不并发复用。
+
+### 10.3 Origin 策略
+
+- 默认只允许 `http://127.0.0.1:<端口>`、`http://localhost:<端口>`；
+- `EMOTION_TTS_ALLOWED_ORIGINS` 可加精确 Origin（代理/局域网/Vite）；
+- 通配 `http://localhost:*` / `http://127.0.0.1:*` 必须显式配置，且只对本机生效；
+- 远程域名不能用通配；被拒请求会记 warning（只记 Origin，不记正文）。
 
 ---
 
@@ -519,7 +546,7 @@ Server → Client：
 | `EMOTION_TTS_FALLBACK_PROVIDERS` | 逗号分隔的显式降级链 |
 | `EMOTION_TTS_HOST` / `EMOTION_TTS_PORT` | 监听地址/端口 |
 | `EMOTION_TTS_DATA_DIR` | 数据目录 |
-| `EMOTION_TTS_ALLOWED_ORIGINS` | 额外允许的浏览器 Origin（逗号分隔） |
+| `EMOTION_TTS_ALLOWED_ORIGINS` | 额外允许的浏览器 Origin（逗号分隔）；仅本机可用端口通配 `http://localhost:*` / `http://127.0.0.1:*` |
 | `OPENAI_API_KEY` / `OPENAI_BASE_URL` | OpenAI |
 | `ELEVENLABS_API_KEY` | ElevenLabs |
 | `AZURE_SPEECH_KEY` / `AZURE_SPEECH_REGION` | Azure |

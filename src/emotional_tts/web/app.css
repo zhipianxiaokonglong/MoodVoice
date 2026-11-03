@@ -500,6 +500,50 @@ audio { width: 100%; height: 36px; color-scheme: dark; }
 .route-arrow { color: var(--line-strong); }
 .route-reason { margin-left: auto; font-size: 9.5px; color: var(--muted); }
 
+.egress-strip {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 13px;
+  margin-top: 12px;
+  border: 1px solid rgba(109, 131, 115, 0.26);
+  border-radius: 13px;
+  background: rgba(109, 131, 115, 0.07);
+  color: var(--muted);
+  font-size: 10px;
+}
+.egress-strip[data-egress="external"] {
+  border-color: rgba(201, 100, 74, 0.3);
+  background: rgba(201, 100, 74, 0.07);
+}
+.egress-mark {
+  width: 23px; height: 23px; flex: 0 0 auto;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  background: rgba(109, 131, 115, 0.14);
+  color: var(--sage);
+  font-size: 11px;
+}
+.egress-strip[data-egress="external"] .egress-mark {
+  background: rgba(201, 100, 74, 0.14);
+  color: var(--accent-deep);
+}
+.egress-copy { min-width: 0; }
+.egress-copy strong { display: block; font-size: 9px; letter-spacing: 0.08em; color: var(--ink-soft); }
+.egress-copy p { margin: 3px 0 0; line-height: 1.5; }
+.egress-badge {
+  margin-left: auto;
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(109, 131, 115, 0.15);
+  color: var(--sage);
+  font-size: 9px;
+  font-weight: 650;
+}
+.egress-strip[data-egress="external"] .egress-badge {
+  background: rgba(201, 100, 74, 0.15);
+  color: var(--accent-deep);
+}
+
 .speech-card, .render-card { padding: 17px 2px 3px; }
 .render-card { padding-top: 14px; }
 .mini-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 9px; }
@@ -688,6 +732,8 @@ body[data-busy="true"] .primary-button { background: #4a3d32; }
   .style-stats { width: 100%; justify-content: space-between; gap: 10px; }
   .style-stats div { text-align: left; }
   .route-reason { width: 100%; margin-left: 14px; }
+  .egress-strip { align-items: flex-start; }
+  .egress-badge { margin-left: 0; }
   .dev-grid { grid-template-columns: 1fr; }
   .footer { padding: 0 18px 22px; flex-direction: column; gap: 5px; }
   .audio-body { flex-direction: column; align-items: stretch; gap: 9px; }

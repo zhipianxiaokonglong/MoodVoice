@@ -17,9 +17,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 class InputTags(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    emotion: str = "neutral"
-    type: str = "text"
-    intent: str = "reply"
+    emotion: str = Field(default="neutral", max_length=64)
+    type: str = Field(default="text", max_length=32)
+    intent: str = Field(default="reply", max_length=32)
 
     @field_validator("emotion", "type", "intent", mode="before")
     @classmethod
@@ -33,13 +33,23 @@ class InputEvent(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     event_id: UUID
-    session_id: UUID
+    # Kept as a string on purpose: upstream assemblies may use a device/session
+    # key that is not a UUID. A missing value is derived from event_id so a
+    # malformed session cannot turn a valid turn into a 422.
+    session_id: str = Field(default="", max_length=128)
     content: str = Field(min_length=1, max_length=20000)
     stream: bool = True
     tags: InputTags = Field(default_factory=InputTags)
     # Optional extension for the demo/API. The upstream contract does not need
     # to send it; normal routing comes from config.
     provider: str | None = Field(default=None, max_length=32)
+
+    @field_validator("session_id", mode="before")
+    @classmethod
+    def _normalize_session(cls, value: Any) -> str:
+        if value is None:
+            return ""
+        return str(value).strip()
 
     @field_validator("content")
     @classmethod
@@ -90,6 +100,16 @@ class RoutePayload(BaseModel):
     reason: str
 
 
+class PrivacyPayload(BaseModel):
+    """Top-level, UI-readable summary of where the speech text went."""
+
+    content_logged: bool = False
+    cache_scope: str = "local_only"
+    text_sent_to: list[dict[str, Any]] = Field(default_factory=list)
+    external_egress: bool = False
+    summary: str = "尚未向 TTS 发送文本"
+
+
 class DegradationPayload(BaseModel):
     code: str
     stage: str
@@ -109,6 +129,7 @@ class DiagnosticsPayload(BaseModel):
     adapter: dict[str, Any] = Field(default_factory=dict)
     speech: dict[str, Any] = Field(default_factory=dict)
     privacy: dict[str, Any] = Field(default_factory=dict)
+    session: dict[str, Any] = Field(default_factory=dict)
 
 
 class OutputEvent(BaseModel):
@@ -131,6 +152,7 @@ class OutputEvent(BaseModel):
     status: str = "synthesized"
     degraded: bool = False
     degradation: DegradationPayload | None = None
+    privacy: PrivacyPayload = Field(default_factory=PrivacyPayload)
     diagnostics: DiagnosticsPayload = Field(default_factory=DiagnosticsPayload)
     timings: TimingPayload = Field(default_factory=TimingPayload)
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())

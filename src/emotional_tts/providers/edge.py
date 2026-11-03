@@ -21,7 +21,7 @@ _VOLUME_RE = re.compile(r"^[+-]\d{1,3}%$")
 
 class EdgeProvider(TTSProvider):
     name: ClassVar[str] = "edge"
-    display_name: ClassVar[str] = "edge-tts（免密钥）"
+    display_name: ClassVar[str] = "edge-tts（在线·免密钥）"
     capabilities: ClassVar[ProviderCapabilities] = ProviderCapabilities(
         streaming=True,
         emotional_control="prosody",

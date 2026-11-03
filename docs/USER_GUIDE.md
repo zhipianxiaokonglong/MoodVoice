@@ -85,7 +85,8 @@ MoodVoice Demo: http://127.0.0.1:8765
 - 音频在合成过程中就开始播放（浏览器支持 MSE 时）；
 - “首响”显示从收到事件到收到第一段音频的毫秒数；
 - 下方展示实际朗读稿、文本渲染、路由和诊断；
-- 默认 `edge` 会返回 `route=ui.voice_reply`，并生成一条本地记录。
+- 默认 `edge` 会返回 `route=ui.voice_reply`，并生成一条本地记录；
+- 结果区的“本次文本去向”会显示 `已出网`，提示文本已发往微软在线朗读服务。
 
 ### Demo 里值得试的四个场景
 
@@ -97,7 +98,8 @@ MoodVoice Demo: http://127.0.0.1:8765
 | 纯文本降级 | 选一个显示“未配置”的厂商 | 保留完整文本，状态为“纯文本降级”，诊断里能看到失败原因 |
 
 > 默认 `edge-tts` 是**在线**服务：不需要账号，但朗读文本会发往微软的朗读服务。
-> UI 的“数据边界”卡片会随厂商切换更新说明。
+> UI 的“数据边界”卡片会随厂商切换更新说明，每次结果也会单独显示文本去向和
+> `已出网/本机/未发送` 标记。
 
 ---
 
@@ -256,6 +258,16 @@ providers:
 
 ## 6. 厂商切换与降级
 
+### 6.0 情感标签输入
+
+Demo 的情感下拉框已包含 12 个 canonical 标签和 3 个上游兼容标签：
+
+- `fear`（恐惧）→ 悲伤
+- `confusion`（困惑）→ 受挫
+- `gratitude`（感激）→ 开心
+
+API 可直接传 OmniNexus 的 9 类原值，无需组装层先做映射。
+
 ### 6.1 切换
 
 - **Demo**：右上“语音厂商”下拉框，立即生效；
@@ -332,6 +344,8 @@ moodvoice cache clear --records
 | ElevenLabs 401 或 404 | Key 错误或 Voice ID 不存在 | 重新复制 Voice ID 到 `config/app.yaml`；确认账号权限 |
 | Azure 返回 400 | 该音色不支持所选风格，或 region 错 | 换支持该风格的音色；用 `moodvoice diagnose --emotion ... --provider azure` 查看实际请求参数 |
 | MiniMax 提示 GroupId | 账户需要 GroupId | 补 `MINIMAX_GROUP_ID`，或改用国际站端点 |
+| 代理/Vite 页面访问返回 403 `origin_not_allowed` | 页面 Origin 不在白名单 | 在 `.env` 配置实际页面 Origin，例如 `EMOTION_TTS_ALLOWED_ORIGINS=http://localhost:1420`；开发期可显式使用 `http://localhost:*`（仅本机） |
+| 上游传入 `session_id` 不是 UUID 或被省略 | 旧版本强制 UUID | 已兼容：非 UUID 原样接受，缺失时由 `event_id` 派生，返回 `diagnostics.session.source` |
 | 本地服务 `format_mismatch` | 返回音频格式与 `providers.local.format` 不一致 | 让两者一致（WAV/MP3），不要只改文件后缀 |
 | 有文字没声音 | 意图是 `tool`/`linkage`，或厂商失败 | 看 `route.synthesize` 与 `degraded`；切换意图/厂商 |
 | 浏览器无法流式播放 | 浏览器不支持该 MIME 的 MSE | 会自动退化为整段播放；仍可下载音频；首响指标在服务端有效 |
