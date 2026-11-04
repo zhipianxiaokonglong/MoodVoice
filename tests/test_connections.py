@@ -598,6 +598,7 @@ async def test_keyless_loopback_connection_is_ready_and_synthesizes(manager):
     assert provider.ready is True
     assert provider.readiness() == (True, [])
     assert provider.external_egress() is False
+    assert provider.capabilities.requires_key is False
 
     result = await manager.test(
         TestConnectionRequest(
@@ -632,3 +633,20 @@ async def test_remote_connection_without_key_reports_friendly_label():
     assert ready is False
     assert missing == ["连接 API Key"]
     assert provider.external_egress() is True
+
+    eleven = ConnectionProvider(
+        ConnectionRecord(
+            id="api_deadbeefcaff",
+            label="eleven",
+            protocol="elevenlabs",
+            base_url="https://api.elevenlabs.io/v1",
+        ),
+        api_key=None,
+    )
+    try:
+        ready, missing = eleven.readiness()
+    finally:
+        await eleven.close()
+    assert ready is False
+    # Config-path labels are rewritten too; no .env variable names leak.
+    assert missing == ["连接 API Key", "连接音色（Voice ID）"]

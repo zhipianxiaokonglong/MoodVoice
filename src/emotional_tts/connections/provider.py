@@ -32,6 +32,11 @@ _MISSING_LABELS: dict[str, str] = {
     "AZURE_SPEECH_KEY": "连接 API Key",
     "MINIMAX_API_KEY": "连接 API Key",
     "AZURE_SPEECH_REGION": "连接区域（region）",
+    "valid_region": "连接区域（region）格式",
+    "providers.elevenlabs.voice_id": "连接音色（Voice ID）",
+    "providers.minimax.voice_id": "连接音色（Voice ID）",
+    "base_url": "Base URL",
+    "disabled_in_config": "连接已禁用",
 }
 
 _PROTOCOL_LABELS: dict[str, str] = {
@@ -128,6 +133,7 @@ class ConnectionProvider(TTSProvider):
             base,
             data_destination=f"{self.record.label}（{_PROTOCOL_LABELS[self.record.protocol]}）",
             external_egress=self.external_egress(),
+            requires_key=base.requires_key and not self.keyless_local,
         )
 
     def readiness(self) -> tuple[bool, list[str]]:
