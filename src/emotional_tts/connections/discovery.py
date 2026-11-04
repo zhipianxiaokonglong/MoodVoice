@@ -11,6 +11,7 @@ Nothing here sends user speech text; discovery requests only ask for metadata.
 
 from __future__ import annotations
 
+import json
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
@@ -116,15 +117,18 @@ def _auth_headers(protocol: Protocol, api_key: str | None) -> dict[str, str]:
     return {"Authorization": f"Bearer {api_key}"}
 
 
-async def _get_json(
+async def _request_json(
     client: httpx.AsyncClient,
+    method: str,
     url: str,
     *,
     protocol: Protocol,
     headers: dict[str, str],
+    body: dict[str, object] | None = None,
 ) -> object:
+    request = client.build_request(method, url, headers=headers, json=body)
     try:
-        response = await client.get(url, headers=headers)
+        response = await client.send(request, stream=True)
     except httpx.HTTPError as exc:
         raise ConnectionFailure(
             "无法连接该 API 地址，请检查 URL 与网络。",
@@ -133,23 +137,39 @@ async def _get_json(
             details={"protocol": protocol, "exception": type(exc).__name__},
             http_status=502,
         ) from exc
-    if response.status_code >= 400:
-        _raise_status(protocol, response.status_code, "discover")
-    if len(response.content) > MAX_JSON_BYTES:
-        raise ConnectionFailure(
-            "API 返回的数据过大，已拒绝解析。",
-            code="response_too_large",
-            stage="discover",
-        )
     try:
-        return response.json()
-    except ValueError as exc:
-        raise ConnectionFailure(
-            "API 返回了非 JSON 数据。",
-            code="invalid_response",
-            stage="discover",
-            details={"protocol": protocol},
-        ) from exc
+        if response.status_code >= 300:
+            _raise_status(protocol, response.status_code, "discover")
+        payload = bytearray()
+        async for chunk in response.aiter_bytes():
+            payload.extend(chunk)
+            if len(payload) > MAX_JSON_BYTES:
+                raise ConnectionFailure(
+                    "API 返回的数据过大，已拒绝解析。",
+                    code="response_too_large",
+                    stage="discover",
+                )
+        try:
+            return json.loads(payload)
+        except ValueError as exc:
+            raise ConnectionFailure(
+                "API 返回了非 JSON 数据。",
+                code="invalid_response",
+                stage="discover",
+                details={"protocol": protocol},
+            ) from exc
+    finally:
+        await response.aclose()
+
+
+async def _get_json(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    protocol: Protocol,
+    headers: dict[str, str],
+) -> object:
+    return await _request_json(client, "GET", url, protocol=protocol, headers=headers)
 
 
 async def _post_json(
@@ -160,36 +180,18 @@ async def _post_json(
     headers: dict[str, str],
     body: dict[str, object],
 ) -> object:
-    try:
-        response = await client.post(url, headers=headers, json=body)
-    except httpx.HTTPError as exc:
-        raise ConnectionFailure(
-            "无法连接该 API 地址，请检查 URL 与网络。",
-            code="network_error",
-            stage="discover",
-            details={"protocol": protocol, "exception": type(exc).__name__},
-            http_status=502,
-        ) from exc
-    if response.status_code >= 400:
-        _raise_status(protocol, response.status_code, "discover")
-    if len(response.content) > MAX_JSON_BYTES:
-        raise ConnectionFailure(
-            "API 返回的数据过大，已拒绝解析。",
-            code="response_too_large",
-            stage="discover",
-        )
-    try:
-        return response.json()
-    except ValueError as exc:
-        raise ConnectionFailure(
-            "API 返回了非 JSON 数据。",
-            code="invalid_response",
-            stage="discover",
-            details={"protocol": protocol},
-        ) from exc
+    return await _request_json(client, "POST", url, protocol=protocol, headers=headers, body=body)
 
 
 def _raise_status(protocol: Protocol, status: int, stage: str) -> None:
+    if 300 <= status < 400:
+        raise ConnectionFailure(
+            "API 返回了重定向，已拒绝跟随。",
+            code="redirect_not_allowed",
+            stage=stage,
+            details={"protocol": protocol, "upstream_status": status},
+            http_status=400,
+        )
     if status in (401, 403):
         raise ConnectionFailure(
             "API Key 无效或没有权限。",

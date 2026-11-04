@@ -238,7 +238,7 @@ python -m pytest -q -m live -s
 
 最近一次结果（2026-11-04，Windows / Python 3.12.14）：
 
-- `86 passed, 1 skipped`（跳过 live，5.85 s）
+- `92 passed, 1 skipped`（跳过 live，5.56 s）
 - live 测试：`1 passed`，真实 edge-tts 首响稳定样本 0.77–1.31 s（网络抖动时可达数秒，仍在超时阈值内）
 - 浏览器端：流式 MSE 播放、9 类上游标签、意图路由、纯文本降级、隐私去向、移动端均通过，无控制台错误
 - 浏览器端（API 接入）：探索 → 试听 → 保存 → REST/WS 生成 → 再次试听 → 删除全流程 40 项断言通过

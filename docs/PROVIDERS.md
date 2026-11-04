@@ -282,7 +282,7 @@ def synthesize(req: SynthRequest):
 
 ### 7.2 自动识别
 
-“自动识别”会按 `openai → azure → elevenlabs → minimax` 顺序依次尝试，第一个成功的
+“自动识别”会按 `openai → elevenlabs → azure → minimax` 顺序依次尝试，第一个成功的
 协议即为结果；全部失败时返回 `protocol_detection_failed`，并在
 `details.attempts` 里给出每个协议的错误码（`auth_failed`、`endpoint_not_found`、
 `network_error` 等），用户可据此改成手动选择协议。
@@ -316,4 +316,16 @@ def synthesize(req: SynthRequest):
 - 动态连接**不进入 `auto_order`**：`auto` 不会挑到它们，必须显式选择；
 - 同一协议可以保存多个连接（不同网关、不同账户、不同音色）；
 - 删除连接只影响该连接，不影响内置适配器。
+
+### 7.6 本机免密钥服务
+
+OpenAI 兼容协议允许 **loopback + 无密钥** 的连接（LM Studio、vLLM、自建网关等）：
+
+- 判定条件是 `protocol=openai`、`api_key` 为空、Base URL 主机是 `127.0.0.1` /
+  `localhost` / `::1`；
+- 这类连接不发送 `Authorization` 头（避免 `Bearer None`），`readiness()` 视为就绪；
+- 远程地址即使服务端不校验密钥，也要求填写一个 Key——这样“密钥缺失”不会被
+  静默放过；
+- 未就绪时的缺失项会改写成用户能理解的名字（如 `连接 API Key`），不再暴露
+  `OPENAI_API_KEY` 这类环境变量名。
 

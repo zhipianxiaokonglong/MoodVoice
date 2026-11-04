@@ -176,7 +176,7 @@ def create_app(
             content={
                 "error": {
                     "code": "invalid_event",
-                    "message": "输入事件不符合契约。",
+                    "message": "请求参数不符合契约。",
                     "details": errors,
                 }
             },
@@ -257,7 +257,6 @@ def create_app(
             "records": records.count(),
             "connections": connections.public_connections(),
             "connection_key_storage": connections.key_storage(),
-            "connection_protocols": ["openai", "azure", "elevenlabs", "minimax"],
             "limits": {
                 "max_input_chars": app_config.app.max_input_chars,
                 "max_tts_chars": app_config.app.max_tts_chars,

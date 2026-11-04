@@ -78,7 +78,7 @@ class KeyringKeyStore(MemoryKeyStore):
             self._keyring.set_password(_KEYRING_SERVICE, connection_id, api_key)
         except Exception as exc:
             raise ConnectionFailure(
-                "无法写入系统密钥库，密钥仅保留在本次会话",
+                "无法写入系统凭据库，连接未保存。请检查系统凭据服务后重试。",
                 code="key_store_unavailable",
                 stage="key_store",
             ) from exc

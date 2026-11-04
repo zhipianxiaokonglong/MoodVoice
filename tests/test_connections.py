@@ -503,3 +503,132 @@ async def test_reload_picks_up_external_store_edits(manager):
     count = await manager.reload()
     assert count == 0
     assert manager.registry.get(record.id) is None
+
+
+async def test_discovery_rejects_redirects():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(302, headers={"location": "http://127.0.0.1/internal"})
+
+    async with _client(handler) as client:
+        with pytest.raises(ConnectionFailure) as info:
+            await discover(
+                client,
+                base_url="https://api.openai.test/v1",
+                protocol="openai",
+                api_key="key",
+            )
+    assert info.value.code == "redirect_not_allowed"
+    assert info.value.details["upstream_status"] == 302
+
+
+async def test_discovery_rejects_oversized_metadata():
+    from emotional_tts.connections.discovery import MAX_JSON_BYTES
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"{" + b" " * (MAX_JSON_BYTES + 1))
+
+    async with _client(handler) as client:
+        with pytest.raises(ConnectionFailure) as info:
+            await discover(
+                client,
+                base_url="https://api.openai.test/v1",
+                protocol="openai",
+                api_key="key",
+            )
+    assert info.value.code == "response_too_large"
+
+
+def test_save_request_rejects_blank_label():
+    from pydantic import ValidationError
+
+    from emotional_tts.connections.models import SaveConnectionRequest
+
+    with pytest.raises(ValidationError):
+        SaveConnectionRequest(
+            label="   ",
+            base_url="https://api.openai.test/v1",
+            protocol="openai",
+        )
+
+
+async def test_connection_test_rejects_json_instead_of_audio(manager):
+    from emotional_tts.connections.models import TestConnectionRequest
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        # A gateway that mislabels a JSON error body as binary audio.
+        return httpx.Response(
+            200,
+            content=b'{"error": {"message": "model does not support audio"}}',
+            headers={"content-type": "application/octet-stream"},
+        )
+
+    manager.client_factory = lambda: _client(handler)
+    with pytest.raises(ConnectionFailure) as info:
+        await manager.test(
+            TestConnectionRequest(
+                base_url="https://api.openai.test/v1",
+                api_key="secret",
+                protocol="openai",
+                model="tts-1",
+                voice="coral",
+            )
+        )
+    assert info.value.code == "not_audio"
+
+
+async def test_keyless_loopback_connection_is_ready_and_synthesizes(manager):
+    from emotional_tts.connections.models import SaveConnectionRequest, TestConnectionRequest
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"ID3keyless", headers={"content-type": "audio/mpeg"})
+
+    manager.client_factory = lambda: _client(handler)
+    record = await manager.save(
+        SaveConnectionRequest(
+            label="local keyless",
+            base_url="http://127.0.0.1:9999/v1",
+            api_key=None,
+            protocol="openai",
+            model="tts-1",
+            voice="coral",
+        )
+    )
+    provider = manager.registry.get(record.id)
+    assert provider is not None
+    assert provider.ready is True
+    assert provider.readiness() == (True, [])
+    assert provider.external_egress() is False
+
+    result = await manager.test(
+        TestConnectionRequest(
+            base_url="http://127.0.0.1:9999/v1",
+            api_key=None,
+            protocol="openai",
+            model="tts-1",
+            voice="coral",
+        )
+    )
+    assert result.ok is True
+    assert result.audio_bytes > 0
+
+
+async def test_remote_connection_without_key_reports_friendly_label():
+    from emotional_tts.connections.models import ConnectionRecord
+    from emotional_tts.connections.provider import ConnectionProvider
+
+    provider = ConnectionProvider(
+        ConnectionRecord(
+            id="api_deadbeefcafe",
+            label="remote",
+            protocol="openai",
+            base_url="https://api.openai.test/v1",
+        ),
+        api_key=None,
+    )
+    try:
+        ready, missing = provider.readiness()
+    finally:
+        await provider.close()
+    assert ready is False
+    assert missing == ["连接 API Key"]
+    assert provider.external_egress() is True

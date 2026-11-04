@@ -208,6 +208,7 @@ def _diagnose(args: argparse.Namespace) -> int:
                 indent=2,
             )
         )
+        asyncio.run(registry.close())
         return 1
     params = styles.provider_params(resolved, provider.style_family)
     params = provider.decorate_style(params)

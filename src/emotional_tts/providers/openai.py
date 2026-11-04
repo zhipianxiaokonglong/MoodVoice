@@ -31,9 +31,14 @@ class OpenAIProvider(TTSProvider):
         *,
         api_key: str | None,
         timeout_seconds: float = 30.0,
+        allow_keyless: bool = False,
     ) -> None:
         super().__init__(config, timeout_seconds=timeout_seconds)
         self.api_key = api_key
+        # Keyless OpenAI-compatible servers exist (local gateways, LM Studio,
+        # vLLM...). User API connections on loopback opt in explicitly; built-in
+        # providers keep the old requirement so a missing key still fails loudly.
+        self.allow_keyless = allow_keyless
         self.base_url = (getattr(config, "base_url", None) or "https://api.openai.com/v1").rstrip(
             "/"
         )
@@ -51,7 +56,7 @@ class OpenAIProvider(TTSProvider):
         missing: list[str] = []
         if not getattr(self.config, "enabled", True):
             missing.append("disabled_in_config")
-        if not self.api_key:
+        if not self.api_key and not self.allow_keyless:
             missing.append("OPENAI_API_KEY")
         if not self.base_url:
             missing.append("base_url")
@@ -102,10 +107,10 @@ class OpenAIProvider(TTSProvider):
             )
         voice = self._voice(request)
         url = f"{self.base_url}/audio/speech"
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            # A keyless local server must not receive a bogus "Bearer None".
+            headers["Authorization"] = f"Bearer {self.api_key}"
         async for chunk in stream_audio(
             self.name,
             self._client,

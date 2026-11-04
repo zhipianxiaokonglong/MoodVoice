@@ -4,7 +4,7 @@
 - 环境：Windows 11 (10.0.26200)，Python 3.12.14
 - 依赖：FastAPI 0.162.0，Pydantic 2.14.1，httpx 0.28.1，edge-tts 7.3.1，pytest 8.4.2，keyring 25.x
 - 代码版本：v1.0.0 + 审计修复 + API 接入模式
-- 结论：**通过**。86 个自动化测试通过，1 个依赖真实 edge-tts 的 live 测试通过；
+- 结论：**通过**。92 个自动化测试通过，1 个依赖真实 edge-tts 的 live 测试通过；
   浏览器端覆盖流式、9 类标签、纯文本路由、纯文本降级、移动端，以及 API 连接面板的
   探索/试听/保存/切换/删除全流程，无控制台错误、无失败请求。
 
@@ -20,7 +20,7 @@ python -m pytest -q
 
 ```text
 .............................s.......................................     [100%]
-86 passed, 1 skipped, 1 warning in 5.85s
+92 passed, 1 skipped, 1 warning in 5.56s
 ```
 
 跳过项是 `tests/test_live_edge.py`（默认不访问外网）。warning 为 Starlette
@@ -35,7 +35,7 @@ python -m pytest -q -m live -s
 
 ```text
 .
-1 passed, 86 deselected, 1 warning (final verification: 1.49s)
+1 passed, 92 deselected, 1 warning (final verification: 2.50s)
 ```
 
 覆盖：真实网络、真实 MP3、音频文件 > 1 KB、端到端首响 < 15 s。
@@ -69,7 +69,7 @@ All checks passed!
 
 ### 1.5 API 接入模式（页面内 URL + Key）
 
-`tests/test_connections.py`（16 个用例，全部使用 `httpx.MockTransport`，不访问外网）：
+`tests/test_connections.py`（22 个用例，全部使用 `httpx.MockTransport`，不访问外网）：
 
 | 用例 | 断言 |
 |---|---|
@@ -84,6 +84,10 @@ All checks passed!
 | 连接 API | discover/test/save/list/get/retest/delete 全部走通 |
 | 完整管线 | 通过连接合成成功，`provider=api_*`、`status=synthesized` |
 | 试听不写记录 | 试听后 `records` 仍为 0 |
+| 重定向 / 超大响应 | 3xx → `redirect_not_allowed`；>4 MB 元数据在读取过程中即中止（`response_too_large`） |
+| JSON 冒充音频 | 200 + `octet-stream` 的 JSON 错误体 → `not_audio`，不会写进缓存 |
+| 本机免密钥 | loopback + 空 Key 可保存/试听，不发送 `Authorization`；远程缺 Key 提示“连接 API Key” |
+| 空白连接名 | Pydantic 直接拒绝（去掉首尾空格后为空） |
 
 浏览器端另有一轮 40 项断言的端到端检查（见 4.1）。
 
@@ -234,6 +238,30 @@ OpenAI 兼容假 TTS（`GET /v1/models`、`GET /v1/audio/voices`、`POST /v1/aud
 - 浏览器：流式 MSE、`gratitude→开心`、`fear→悲伤`、tool 路由“未发送”、未配置厂商降级“未发送”、移动端无溢出、控制台错误 0
 - 静态：`ruff check` / `ruff format --check` 通过
 - 首响复验：流式 1306 ms
+
+### 6.2 API 接入模式复审（2026-11-04）
+
+对新增的 `connections/` 及其调用方做了一次代码复审，修复项：
+
+| # | 问题 | 处理 |
+|---|---|---|
+| 1 | 发现阶段的 4 MB 上限在**整包读完之后**才判断，恶意/异常端点可以先把内存吃满 | 改为流式读取并逐块累计，超限立即中止 |
+| 2 | 3xx 未被显式识别，`follow_redirects=False` 后拿到重定向页 HTML，报成 `invalid_response` | 明确返回 `redirect_not_allowed` |
+| 3 | 连接名只校验长度，`"   "` 能保存出空名称 | Pydantic validator 去空格后拒绝 |
+| 4 | `save()` 回滚阶段再次抛错会掩盖原始异常 | 回滚改为 best-effort，保留原始错误 |
+| 5 | 凭据库写入失败时提示“密钥仅保留在本次会话”，但实际保存被回滚 | 提示改为“连接未保存” |
+| 6 | `/api/v1/admin/reload-connections` 只返回列表，并未真正重载 | 实现 `reload()`：移除全部 `kind=connection` 的 provider、重读文件、重新注册 |
+| 7 | 健康检查里 `connection_protocols` 无人使用且与 `Protocol` 重复 | 删除该字段 |
+| 8 | 连接表单的 422 文案沿用了“输入事件不符合契约” | 改为“请求参数不符合契约” |
+| 9 | `moodvoice diagnose` 未知厂商提前返回时未关闭 httpx 客户端 | 提前返回前关闭注册表 |
+| 10 | 文档写的自动识别顺序与代码不一致 | 文档改为 `openai → elevenlabs → azure → minimax` |
+
+同时复核了工作区里未提交的“本机免密钥”改动（`OpenAIProvider.allow_keyless` +
+`ConnectionProvider` 的就绪标签改写）：逻辑正确，并补了两条测试覆盖
+loopback 无密钥可合成、远程缺密钥提示“连接 API Key”。
+
+复审后：`92 passed, 1 skipped`；`ruff` 通过；另用真实 socket 跑了一遍
+discover → test → save → outputs → retest → delete，确认 `connections.json` 不含密钥。
 
 ---
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import secrets
 import time
@@ -162,6 +163,15 @@ class ConnectionManager:
             iterator = provider.stream(synthesis)
             first = await _first_chunk(iterator, provider, timeout=_FIRST_CHUNK_TIMEOUT)
             first_ms = round((time.perf_counter() - started) * 1000, 1)
+            if first.lstrip()[:1] in {b"{", b"["}:
+                # Some gateways answer 200 with a JSON error body; caching that
+                # as audio would produce a "successful" but silent connection.
+                raise ProviderError(
+                    provider=provider.name,
+                    code="not_audio",
+                    message="API 返回的是 JSON 而不是音频，请确认该模型支持语音合成。",
+                    stage="provider_synthesis",
+                )
             writer.append(first)
             deadline = started + _TEST_TIMEOUT
             while True:
@@ -247,9 +257,15 @@ class ConnectionManager:
             self.store.put(record)
             self._register(record, key)
         except Exception:
-            self.key_store.delete(record.id)
-            self.store.delete(record.id)
-            self.registry.remove(record.id)
+            # Roll back whatever landed, without masking the original failure.
+            with contextlib.suppress(Exception):
+                self.key_store.delete(record.id)
+            with contextlib.suppress(Exception):
+                self.store.delete(record.id)
+            failed = self.registry.remove(record.id)
+            if failed is not None:
+                with contextlib.suppress(Exception):
+                    await failed.close()
             raise
 
         if key:
@@ -509,4 +525,5 @@ def save_last_test(
             code=getattr(error, "code", "error"),
             message=sanitize_message(getattr(error, "message", "测试失败")),
         )
+    record.updated_at = _now()
     store.put(record)

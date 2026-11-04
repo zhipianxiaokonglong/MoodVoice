@@ -29,7 +29,9 @@ class DiscoverRequest(BaseModel):
         return value
 
 
-class TestConnectionRequest(BaseModel):
+class _ConnectionPayload(BaseModel):
+    """Fields shared by the "try it" and "save it" requests."""
+
     model_config = ConfigDict(extra="forbid")
 
     base_url: str = Field(min_length=1, max_length=2048)
@@ -43,6 +45,17 @@ class TestConnectionRequest(BaseModel):
     output_format: str | None = Field(default=None, max_length=80)
     format: str | None = Field(default=None, max_length=20)
     allow_insecure_http: bool = False
+
+    @field_validator("base_url")
+    @classmethod
+    def _strip_url(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("base_url must not be blank")
+        return value
+
+
+class TestConnectionRequest(_ConnectionPayload):
     text: str = Field(
         default="你好，这是一次 API 接入测试。",
         min_length=1,
@@ -50,9 +63,16 @@ class TestConnectionRequest(BaseModel):
     )
 
 
-class SaveConnectionRequest(TestConnectionRequest):
+class SaveConnectionRequest(_ConnectionPayload):
     label: str = Field(min_length=1, max_length=60)
-    api_key: SecretStr | None = None
+
+    @field_validator("label")
+    @classmethod
+    def _strip_label(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("label must not be blank")
+        return value
 
 
 class ModelOption(BaseModel):

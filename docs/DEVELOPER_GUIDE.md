@@ -576,7 +576,12 @@ Server → Client：
 - 情感参数仍按 `provider.style_family` 从 `emotion_styles.yaml` 取，随后
   `provider.decorate_style()` 把用户选的 voice/model 钉进 style，保证试听与生成一致；
 - `capabilities.data_destination` 被改写为连接自己的名称，避免隐私卡片误报成默认厂商；
-- `external_egress()` 按 Base URL 主机判断，loopback 记为不出网。
+- `external_egress()` 按 Base URL 主机判断，loopback 记为不出网；
+- OpenAI 兼容协议允许 **loopback 且无密钥**（本地推理服务）；远程仍要求密钥，
+  未就绪项会改写成“连接 API Key”这类用户可理解的标签；
+- 发现请求不跟随重定向，3xx 直接报错；响应体按 4 MB 上限流式截断；
+- `reload()` 会先移除所有 `kind="connection"` 的 provider，再重读 `connections.json`，
+  因此能同步“文件被外部删除”的情况（仅运维用，不等同热更新 UI）。
 
 **扩展一个新协议**：在 `models.Protocol` 增加字面量 → `discovery.py` 写探测函数并在
 `discover()` / `auto_discover()` 注册 → `provider._BUILDERS` 加一个适配器 → 补

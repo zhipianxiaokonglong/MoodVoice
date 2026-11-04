@@ -15,12 +15,23 @@ from ..providers.elevenlabs import ElevenLabsProvider
 from ..providers.minimax import MiniMaxProvider
 from ..providers.openai import OpenAIProvider
 from .models import ConnectionRecord
+from .security import is_local_host
 
 _BUILDERS: dict[str, type[TTSProvider]] = {
     "openai": OpenAIProvider,
     "azure": AzureProvider,
     "elevenlabs": ElevenLabsProvider,
     "minimax": MiniMaxProvider,
+}
+
+# Vendor adapters name environment variables; a connection user only knows the
+# form they filled in, so these labels are rewritten in readiness().
+_MISSING_LABELS: dict[str, str] = {
+    "OPENAI_API_KEY": "连接 API Key",
+    "ELEVENLABS_API_KEY": "连接 API Key",
+    "AZURE_SPEECH_KEY": "连接 API Key",
+    "MINIMAX_API_KEY": "连接 API Key",
+    "AZURE_SPEECH_REGION": "连接区域（region）",
 }
 
 _PROTOCOL_LABELS: dict[str, str] = {
@@ -88,10 +99,21 @@ class ConnectionProvider(TTSProvider):
                 stage="connection",
             )
         config = _Config(record)
-        self._delegate = builder(config, api_key=api_key, timeout_seconds=timeout_seconds)
+        keyless_local = (
+            record.protocol == "openai" and not api_key and is_local_host(record.base_url)
+        )
+        self._delegate = builder(
+            config,
+            api_key=api_key,
+            timeout_seconds=timeout_seconds,
+            # Only the OpenAI-compatible protocol may be keyless, and only when
+            # the endpoint is loopback: that is the documented local-gateway case.
+            **({"allow_keyless": keyless_local} if record.protocol == "openai" else {}),
+        )
         if client_factory is not None:
             self._delegate._client = client_factory()
         self.timeout_seconds = timeout_seconds
+        self.keyless_local = keyless_local
 
     @property
     def style_family(self) -> str:
@@ -109,23 +131,25 @@ class ConnectionProvider(TTSProvider):
         )
 
     def readiness(self) -> tuple[bool, list[str]]:
-        if not self.api_key:
-            # An OpenAI-compatible local server may be keyless.
-            if self.record.protocol == "openai":
-                from .security import is_local_host
+        """Report readiness, re-labelled for a user-supplied connection.
 
-                if is_local_host(self.record.base_url):
-                    return True, []
-            return False, ["connection API key"]
-        return self._delegate.readiness()
+        The delegate is a vendor adapter that reports missing *environment*
+        variables (``OPENAI_API_KEY``...). A user who filled in a connection form
+        only knows about "the API key I typed", so those labels are rewritten to
+        something actionable instead of pointing at ``.env``.
+        """
+
+        ready, missing = self._delegate.readiness()
+        if ready:
+            return True, []
+        labels = [_MISSING_LABELS.get(item, item) for item in missing]
+        return False, labels
 
     @property
     def audio_format(self) -> str:
         return self._delegate.audio_format
 
     def external_egress(self) -> bool:
-        from .security import is_local_host
-
         return not is_local_host(self.record.base_url)
 
     def decorate_style(self, style: dict[str, Any]) -> dict[str, Any]:
