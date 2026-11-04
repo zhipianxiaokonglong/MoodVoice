@@ -17,8 +17,22 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .cache import AudioCache, mime_for_format
 from .config import AppConfig, Secrets, load_config
+from .connections.manager import ConnectionManager, save_last_test
+from .connections.models import (
+    DiscoverRequest,
+    SaveConnectionRequest,
+    TestConnectionRequest,
+    TestResult,
+)
 from .contracts import InputEvent, OutputEvent
-from .errors import CacheError, ConfigError, MoodVoiceError, ProviderError, ValidationError
+from .errors import (
+    CacheError,
+    ConfigError,
+    ConnectionFailure,
+    MoodVoiceError,
+    ProviderError,
+    ValidationError,
+)
 from .pipeline import OutputPipeline, SynthesisHooks
 from .providers.base import SynthesisRequest
 from .providers.registry import ProviderRegistry, build_registry
@@ -38,6 +52,7 @@ def create_app(
     registry: ProviderRegistry | None = None,
     cache: AudioCache | None = None,
     records: RecordStore | None = None,
+    connection_manager: ConnectionManager | None = None,
 ) -> FastAPI:
     install_logging()
     app_config = config or load_config(config_path)
@@ -57,6 +72,13 @@ def create_app(
         )
     if records is None:
         records = RecordStore(app_config.data_path / "records.sqlite3")
+    connections = connection_manager or ConnectionManager(
+        app_config,
+        styles=styles,
+        cache=cache,
+        registry=registry,
+    )
+    connections.bootstrap()
     pipeline = OutputPipeline(
         app_config,
         styles=styles,
@@ -97,6 +119,7 @@ def create_app(
     api.state.cache = cache
     api.state.records = records
     api.state.pipeline = pipeline
+    api.state.connections = connections
     allowed_origins = _allowed_origins(app_config)
 
     @api.middleware("http")
@@ -167,6 +190,25 @@ def create_app(
                 "error": {
                     "code": exc.code,
                     "message": sanitize_message(exc.message),
+                    **(
+                        {"details": exc.details}
+                        if isinstance(getattr(exc, "details", None), dict)
+                        and getattr(exc, "details", None)
+                        else {}
+                    ),
+                }
+            },
+        )
+
+    @api.exception_handler(Exception)
+    async def unhandled_handler(request: Request, exc: Exception):
+        logger.error("unhandled request failure: %s", type(exc).__name__)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": {
+                    "code": "internal_error",
+                    "message": "输出层发生内部错误，请查看本地日志。",
                 }
             },
         )
@@ -213,6 +255,9 @@ def create_app(
             "fallback_providers": list(app_config.tts.fallback_providers),
             "cache": cache.stats(),
             "records": records.count(),
+            "connections": connections.public_connections(),
+            "connection_key_storage": connections.key_storage(),
+            "connection_protocols": ["openai", "azure", "elevenlabs", "minimax"],
             "limits": {
                 "max_input_chars": app_config.app.max_input_chars,
                 "max_tts_chars": app_config.app.max_tts_chars,
@@ -255,6 +300,74 @@ def create_app(
             "external" if output.privacy.external_egress else "none"
         )
         return output
+
+    @api.get("/api/v1/connections")
+    async def list_connections() -> dict[str, Any]:
+        return {
+            "connections": connections.public_connections(),
+            "key_storage": connections.key_storage(),
+        }
+
+    @api.post("/api/v1/connections/discover")
+    async def discover_connection(request: DiscoverRequest) -> dict[str, Any]:
+        result = await connections.discover(request)
+        return result.model_dump(mode="json")
+
+    @api.post("/api/v1/connections/test", response_model=TestResult)
+    async def test_connection(request: TestConnectionRequest) -> TestResult:
+        return await connections.test(request)
+
+    @api.post("/api/v1/connections")
+    async def save_connection(request: SaveConnectionRequest) -> dict[str, Any]:
+        record = await connections.save(request)
+        key_store = connections.key_store
+        key_configured = bool(key_store.get(record.id))
+        provider = registry.get(record.id)
+        ready = bool(provider and provider.readiness()[0])
+        return record.public_dict(key_configured=key_configured, ready=ready)
+
+    @api.get("/api/v1/connections/{connection_id}")
+    async def get_connection(connection_id: str) -> dict[str, Any]:
+        record = connections.store.get(connection_id)
+        if record is None:
+            raise _not_found("connection_not_found", "连接不存在。")
+        key_configured = bool(connections.key_store.get(record.id))
+        provider = registry.get(record.id)
+        ready = bool(provider and provider.readiness()[0])
+        return record.public_dict(key_configured=key_configured, ready=ready)
+
+    @api.post("/api/v1/connections/{connection_id}/test")
+    async def retest_connection(connection_id: str) -> TestResult:
+        record = connections.store.get(connection_id)
+        if record is None:
+            raise _not_found("connection_not_found", "连接不存在。")
+        key = connections.key_store.get(connection_id)
+        request = TestConnectionRequest(
+            base_url=record.base_url,
+            api_key=key,
+            protocol=record.protocol,
+            model=record.model,
+            voice=record.voice,
+            region=record.region,
+            group_id=record.group_id,
+            response_format=record.response_format,
+            output_format=record.output_format,
+            format=record.format,
+            allow_insecure_http=record.allow_insecure_http,
+        )
+        try:
+            result = await connections.test(request)
+        except (ConnectionFailure, ProviderError) as exc:
+            save_last_test(connections.store, connection_id, None, exc)
+            raise
+        save_last_test(connections.store, connection_id, result)
+        return result
+
+    @api.delete("/api/v1/connections/{connection_id}")
+    async def delete_connection(connection_id: str) -> dict[str, Any]:
+        if not await connections.remove_connection(connection_id):
+            raise _not_found("connection_not_found", "连接不存在。")
+        return {"ok": True}
 
     @api.get("/api/v1/audio/{filename}")
     async def audio(filename: str) -> FileResponse:
@@ -316,6 +429,17 @@ def create_app(
             provider=provider,
             language=app_config.app.language,
         )
+
+    @api.post("/api/v1/admin/reload-connections")
+    async def reload_connections() -> dict[str, Any]:
+        """Re-read connections.json and re-register providers (ops escape hatch)."""
+
+        count = await connections.reload()
+        return {
+            "reloaded": count,
+            "connections": connections.public_connections(),
+            "key_storage": connections.key_storage(),
+        }
 
     @api.websocket("/ws/v1/outputs")
     async def ws_outputs(websocket: WebSocket) -> None:

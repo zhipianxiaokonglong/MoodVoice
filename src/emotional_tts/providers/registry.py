@@ -48,6 +48,17 @@ class ProviderRegistry:
         provider = self.auto_provider()
         return provider.name if provider else None
 
+    def add(self, provider: TTSProvider, *, auto: bool = False) -> None:
+        self.providers[provider.name] = provider
+        if auto and provider.name not in self.auto_order:
+            self.auto_order.append(provider.name)
+
+    def remove(self, name: str) -> TTSProvider | None:
+        provider = self.providers.pop(name, None)
+        if name in self.auto_order:
+            self.auto_order.remove(name)
+        return provider
+
     def public_catalog(self) -> list[dict[str, Any]]:
         return [provider.public_descriptor() for provider in self.providers.values()]
 

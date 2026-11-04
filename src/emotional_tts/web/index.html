@@ -97,7 +97,10 @@
             </select>
           </div>
           <div class="field-group">
-            <label for="providerSelect">语音厂商</label>
+            <div class="label-row">
+              <label for="providerSelect">语音厂商</label>
+              <button class="text-button" id="openConnectionsBtn" type="button">＋ 接入 API</button>
+            </div>
             <select id="providerSelect">
               <option value="auto">自动选择</option>
             </select>
@@ -128,6 +131,90 @@
           <p class="privacy-foot">BYOK · 无遥测 · 音频仅存本机 <code>.data/</code></p>
         </div>
       </aside>
+
+      <section class="connections-panel" id="connectionsPanel" hidden>
+        <div class="connections-head">
+          <div>
+            <p class="eyebrow">API CONNECTIONS</p>
+            <h2>接入你的 TTS API</h2>
+          </div>
+          <button class="icon-button" id="closeConnectionsBtn" type="button" aria-label="关闭">×</button>
+        </div>
+        <p class="connections-note">
+          输入 Base URL 和 API Key，先探索模型/音色，再试听。密钥只写入本机
+          <span id="keyStorageText">系统凭据库</span>，不进入浏览器存储或仓库。
+        </p>
+
+        <form id="connectionForm">
+          <div class="tag-grid connection-grid">
+            <div class="field-group">
+              <label for="connProtocol">协议</label>
+              <select id="connProtocol">
+                <option value="auto" selected>自动识别</option>
+                <option value="openai">OpenAI 兼容</option>
+                <option value="azure">Azure Speech</option>
+                <option value="elevenlabs">ElevenLabs</option>
+                <option value="minimax">MiniMax</option>
+              </select>
+            </div>
+            <div class="field-group">
+              <label for="connLabel">连接名称</label>
+              <input id="connLabel" type="text" maxlength="60" placeholder="例如：我的 OpenAI 网关" autocomplete="off">
+            </div>
+            <div class="field-group connection-wide">
+              <label for="connUrl">Base URL</label>
+              <input id="connUrl" type="url" placeholder="https://api.openai.com/v1" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="field-group">
+              <label for="connKey">API Key</label>
+              <input id="connKey" type="password" placeholder="仅本次请求/系统凭据库" autocomplete="new-password">
+            </div>
+            <div class="field-group">
+              <label for="connGroup">Group ID（MiniMax 可选）</label>
+              <input id="connGroup" type="text" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="field-group">
+              <label for="connModel">模型</label>
+              <select id="connModel"><option value="">先探索模型</option></select>
+              <input id="connModelManual" type="text" placeholder="可选：手动填写模型 ID" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="field-group">
+              <label for="connVoice">音色 / Voice ID</label>
+              <select id="connVoice"><option value="">先探索音色</option></select>
+              <input id="connVoiceManual" type="text" placeholder="可选：手动填写音色 ID" autocomplete="off" spellcheck="false">
+            </div>
+          </div>
+          <div class="connections-actions">
+            <label class="checkline">
+              <input id="connInsecure" type="checkbox">
+              <span>允许局域网 HTTP（仅当你信任该服务）</span>
+            </label>
+            <div class="connections-buttons">
+              <button class="ghost-action" id="discoverBtn" type="button">探索模型</button>
+              <button class="ghost-action" id="testConnBtn" type="button">试听测试</button>
+              <button class="primary-button small" id="saveConnBtn" type="submit">保存连接</button>
+            </div>
+          </div>
+        </form>
+
+        <div class="connection-status" id="connectionStatus" data-state="idle">尚未探索</div>
+        <div class="connection-result" id="connectionResult" hidden>
+          <div class="connections-result-head">
+            <strong id="connectionResultTitle">探索结果</strong>
+            <small id="connectionResultMeta"></small>
+          </div>
+          <div id="connectionWarnings" class="connection-warnings"></div>
+          <div class="connection-lists" id="connectionLists"></div>
+        </div>
+
+        <div class="saved-connections">
+          <div class="mini-heading">
+            <span>已保存的 API 连接</span>
+            <small id="savedConnectionsMeta">—</small>
+          </div>
+          <div id="savedConnections" class="saved-list"></div>
+        </div>
+      </section>
     </section>
 
     <section class="stage panel" aria-labelledby="stageTitle">

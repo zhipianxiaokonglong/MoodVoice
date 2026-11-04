@@ -262,3 +262,58 @@ def synthesize(req: SynthRequest):
 10. 跑 `pytest` 和真实小样本试听。
 
 接口细节见 [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md#6-厂商适配器)。
+
+---
+
+## 7. 动态 API 接入（四种协议）
+
+除内置适配器外，用户可以在页面里填 **Base URL + API Key**，由服务端探测模型/音色、
+试听并保存成一个动态厂商（ID 形如 `api_3f2a1c9b7d4e`）。这条路径复用现有四个适配器，
+不新增厂商 SDK。
+
+### 7.1 协议与端点
+
+| 协议 | 元数据探索 | 合成 | 默认路径补全 |
+|---|---|---|---|
+| `openai` | `GET {base}/models`；可选 `GET {base}/audio/voices` | `POST {base}/audio/speech` | `api.openai.com` 裸域名补 `/v1` |
+| `azure` | `GET {base}/tts/cognitiveservices/voices/list` | `POST {base}/cognitiveservices/v1` | 补 `/cognitiveservices/v1` |
+| `elevenlabs` | `GET {base}/models`、`GET {base}/voices` | `POST {base}/text-to-speech/{voice_id}/stream` | `api.elevenlabs.io` 裸域名补 `/v1` |
+| `minimax` | `POST {base}/get_voice` | `POST {base}/t2a_v2` | 补 `/v1/t2a_v2` 或 `/get_voice` |
+
+### 7.2 自动识别
+
+“自动识别”会按 `openai → azure → elevenlabs → minimax` 顺序依次尝试，第一个成功的
+协议即为结果；全部失败时返回 `protocol_detection_failed`，并在
+`details.attempts` 里给出每个协议的错误码（`auth_failed`、`endpoint_not_found`、
+`network_error` 等），用户可据此改成手动选择协议。
+
+> 顺序不是随意的：OpenAI 兼容端点最常见，且很多网关同时实现了 `/models`，先探测
+> 它能减少无效请求。探测只取元数据，不发送用户文本。
+
+### 7.3 能力映射
+
+| 协议 | `style_family` | 情感控制 |
+|---|---|---|
+| `openai` | `openai` | `instructions` / 语速 |
+| `azure` | `azure` | `mstts:express-as` |
+| `elevenlabs` | `elevenlabs` | `stability/style/speed` |
+| `minimax` | `minimax` | `voice_setting.emotion` |
+
+情感标签到厂商参数的映射仍然读 `config/emotion_styles.yaml`，只是按
+`provider.style_family` 取值；用户选择的模型/音色会覆盖风格里的默认值（“钉住”），
+保证试听与正式生成一致。
+
+### 7.4 试听与正式生成的区别
+
+- 试听：固定测试文本，只用该连接的模型/音色，**不写正式记录**，音频只进本地缓存；
+- 正式生成：走完整管线（渲染、情感映射、路由、记录、降级），并在结果里标注
+  `provider=api_...`；
+- 已保存连接可随时再次“试听”，结果会更新 `last_test`（成功/失败 + 首响）。
+
+### 7.5 与内置厂商的关系
+
+- 内置厂商的 `.env` / `config/app.yaml` 配置**完全不受影响**；
+- 动态连接**不进入 `auto_order`**：`auto` 不会挑到它们，必须显式选择；
+- 同一协议可以保存多个连接（不同网关、不同账户、不同音色）；
+- 删除连接只影响该连接，不影响内置适配器。
+

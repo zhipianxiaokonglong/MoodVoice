@@ -176,6 +176,15 @@ def _diagnose(args: argparse.Namespace) -> int:
     registry = build_registry(config, secrets)
     resolved = styles.resolve(args.emotion)
     requested = args.provider.strip().lower()
+    from .connections.manager import ConnectionManager
+
+    connections = ConnectionManager(
+        config,
+        styles=styles,
+        cache=AudioCache(config.data_path / "cache"),
+        registry=registry,
+    )
+    connections.bootstrap()
     provider = registry.get(requested) if requested != "auto" else registry.auto_provider()
     if provider is None:
         print(
@@ -190,7 +199,8 @@ def _diagnose(args: argparse.Namespace) -> int:
             )
         )
         return 1
-    params = styles.provider_params(resolved, provider.name)
+    params = styles.provider_params(resolved, provider.style_family)
+    params = provider.decorate_style(params)
     req = SynthesisRequest(
         text="风格参数诊断占位文本",
         language=config.app.language,

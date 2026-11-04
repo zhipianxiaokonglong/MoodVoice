@@ -1,11 +1,12 @@
-# 测试报告
+﻿# 测试报告
 
-- 日期：2026-10-24（M-01~M-05 修复复验：2026-11-03）
+- 日期：2026-10-24（M-01~M-05 修复复验：2026-11-03；API 接入模式：2026-11-04）
 - 环境：Windows 11 (10.0.26200)，Python 3.12.14
-- 依赖：FastAPI 0.162.0，Pydantic 2.14.1，httpx 0.28.1，edge-tts 7.3.1，pytest 8.4.2
-- 代码版本：v1.0.0 + 审计修复
-- 结论：**通过**。70 个自动化测试通过，1 个依赖真实 edge-tts 的 live 测试通过；
-  浏览器端覆盖流式、9 类标签、纯文本路由、纯文本降级、移动端，无控制台错误。
+- 依赖：FastAPI 0.162.0，Pydantic 2.14.1，httpx 0.28.1，edge-tts 7.3.1，pytest 8.4.2，keyring 25.x
+- 代码版本：v1.0.0 + 审计修复 + API 接入模式
+- 结论：**通过**。86 个自动化测试通过，1 个依赖真实 edge-tts 的 live 测试通过；
+  浏览器端覆盖流式、9 类标签、纯文本路由、纯文本降级、移动端，以及 API 连接面板的
+  探索/试听/保存/切换/删除全流程，无控制台错误、无失败请求。
 
 ---
 
@@ -19,7 +20,7 @@ python -m pytest -q
 
 ```text
 .............................s.......................................     [100%]
-70 passed, 1 skipped, 1 warning in 4.25s
+86 passed, 1 skipped, 1 warning in 5.85s
 ```
 
 跳过项是 `tests/test_live_edge.py`（默认不访问外网）。warning 为 Starlette
@@ -34,7 +35,7 @@ python -m pytest -q -m live -s
 
 ```text
 .
-1 passed, 70 deselected, 1 warning (final verification: 1.47s)
+1 passed, 86 deselected, 1 warning (final verification: 1.49s)
 ```
 
 覆盖：真实网络、真实 MP3、音频文件 > 1 KB、端到端首响 < 15 s。
@@ -65,6 +66,26 @@ All checks passed!
 > edge-tts 依赖公网，存在抖动。一次 UI 运行观测到约 7.0 s 的首响，仍在 12 s
 > 超时阈值内且成功；这说明必须保留超时/降级，而不能把首响当成固定 SLA。
 > 商业厂商的真实延迟未验证（无密钥）。
+
+### 1.5 API 接入模式（页面内 URL + Key）
+
+`tests/test_connections.py`（16 个用例，全部使用 `httpx.MockTransport`，不访问外网）：
+
+| 用例 | 断言 |
+|---|---|
+| OpenAI / Azure / ElevenLabs / MiniMax 探测 | 端点、鉴权头、模型与音色解析正确 |
+| 自动识别全部失败 | `protocol_detection_failed` + 4 个协议各自的错误码 |
+| 探测 401 | 映射为 `auth_failed`，不保存上游响应体 |
+| URL 校验 | 非 https、userinfo、fragment、非法端口、query 里藏密钥、元数据地址被拒 |
+| 私网 + DNS rebinding | 未显式允许时拒绝（`blocked_private_network` / `blocked_loopback_resolution`）；勾选后局域网 HTTP/HTTPS 可用，公网 HTTP 仍被拒 |
+| 保存连接 | `connections.json` 不含密钥；`public_connections()` 只有 `key_configured` |
+| 动态 provider | 注册成功、`style_family=openai`、loopback 记为不出网、去向标签为连接名 |
+| 损坏的 `connections.json` | 隔离为 `.corrupt-<时间戳>` 并继续启动，不再让服务起不来 |
+| 连接 API | discover/test/save/list/get/retest/delete 全部走通 |
+| 完整管线 | 通过连接合成成功，`provider=api_*`、`status=synthesized` |
+| 试听不写记录 | 试听后 `records` 仍为 0 |
+
+浏览器端另有一轮 40 项断言的端到端检查（见 4.1）。
 
 ---
 
@@ -140,6 +161,31 @@ All checks passed!
 - 音频下载链接可访问；
 - 清除本地数据后端到端可用（API 测试）。
 
+### 4.1 API 连接面板（2026-11-04，40 项断言）
+
+工具：Playwright 1.64.1 驱动本机 Edge（headless），被测实例是独立进程、
+独立数据目录、`MemoryKeyStore`（避免污染真实凭据库），厂商是一个本地
+OpenAI 兼容假 TTS（`GET /v1/models`、`GET /v1/audio/voices`、`POST /v1/audio/speech`）。
+
+| 阶段 | 断言 |
+|---|---|
+| 打开页面 | 厂商下拉框可用；页面显示“本次会话”（内存密钥库） |
+| 面板 | 点击“＋ 接入 API”展开；Base URL 自动聚焦 |
+| 探索 | 自动识别为 `openai`；模型含 TTS 模型并被优先选中；音色取服务端返回；连接名自动填充 |
+| 试听 | 请求真实发出；状态“试听成功”带首响与字节数；`audioPlayer.src` 指向本地缓存 URL |
+| 保存 | 厂商下拉框自动切到 `api_*`；密钥输入框被清空；已保存列表显示连接名与“已配置密钥” |
+| 浏览器存储 | `localStorage` / `sessionStorage` 中无密钥 |
+| 生成（REST） | 关闭流式开关（真实点击自定义开关）后生成，结果 `provider` 为连接名，去向条写明连接名 |
+| 生成（WS） | 重新打开流式开关，WebSocket 合成完成，状态“语音已就绪” |
+| 再次试听 | 已保存连接试听成功，列表更新时间显示“上次测试成功” |
+| 删除 | 有确认弹窗；删除后列表空、厂商回落到 `auto`、状态复位、健康检查 `connections=[]` |
+| 移动端 | 390×844 下水平溢出 0 px，面板仍可用 |
+| 全程 | 控制台错误 0、未捕获异常 0、失败请求 0 |
+
+发现并修复的问题：`ConnectionProvider.capabilities.data_destination` 直接沿用了适配器
+默认厂商名（本地连接会显示“OpenAI API”），已改为使用连接名称，并补充了
+`external_egress` 覆盖；`test_connections.py` 增加了对应断言。
+
 ### 浏览器验证发现并修复的真实缺陷
 
 **现象**：在 UI 中选择 `intent=tool`，实际仍返回语音。
@@ -210,6 +256,10 @@ All checks passed!
    不支持时退化为整段 Blob 播放。服务端首响仍被记录。
 5. **单机 Demo 无鉴权**：不能直接暴露公网；远程部署需反向代理鉴权。
 6. **长文本分段**：当前按字符上限截断并提示；分段合成 + 拼接是下一版。
+7. **凭据库依赖系统后端**：Windows/macOS/带 Secret Service 的 Linux 可持久化；
+   精简容器里会退化为“本次会话”，重启后需重填密钥（页面会明确提示）。
+8. **API 接入只用假服务验证**：四种协议的真实账户联调仍建议用最小额度密钥做一次，
+   尤其是 Azure 的区域端点与 MiniMax 的 GroupId 差异。
 
 ---
 

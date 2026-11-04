@@ -35,6 +35,7 @@ routing.py        intent -> destination / synthesize
 providers/base.py TTSProvider / SynthesisRequest / capabilities
 providers/http.py 共享 HTTP 流式与错误映射
 providers/*.py    各厂商适配器
+connections/      动态 API 连接：协议探测、URL 校验、密钥库、动态厂商
 cache.py          本地音频缓存（原子写入、校验、清理）
 storage.py        结构化记录（SQLite，不含原文）
 security.py       密钥脱敏、日志 formatter
@@ -277,11 +278,17 @@ class TTSProvider(ABC):
     name: ClassVar[str]
     display_name: ClassVar[str]
     capabilities: ClassVar[ProviderCapabilities]
+    kind: ClassVar[str] = "builtin"        # builtin | connection
+
+    @property
+    def style_family(self) -> str:          # 决定用哪套厂商情感参数；默认等于 name
+        return self.name
 
     def readiness(self) -> tuple[bool, list[str]]
     @property
     def audio_format(self) -> str
     def request_preview(self, request) -> dict
+    def decorate_style(self, style: dict) -> dict   # 可覆盖/补全厂商参数
     def stream(self, request) -> AsyncIterator[bytes]
     async def close(self) -> None
 ```
@@ -483,6 +490,14 @@ moodvoice cache clear --records
 | DELETE | `/api/v1/records` | 清记录 |
 | DELETE | `/api/v1/user-data` | 全清 |
 | GET | `/api/v1/diagnostics/style?emotion=&provider=` | 无网络的风格诊断 |
+| GET | `/api/v1/connections` | 已保存的 API 连接（不含密钥） |
+| POST | `/api/v1/connections/discover` | 探测协议 + 模型/音色 |
+| POST | `/api/v1/connections/test` | 用临时配置试听（不写记录） |
+| POST | `/api/v1/connections` | 保存连接（密钥进凭据库） |
+| GET | `/api/v1/connections/{id}` | 单个连接元数据 |
+| POST | `/api/v1/connections/{id}/test` | 用已保存连接试听 |
+| DELETE | `/api/v1/connections/{id}` | 删除连接 + 密钥 |
+| POST | `/api/v1/admin/reload-connections` | 从磁盘重载连接（运维用） |
 | GET | `/api/openapi.json` | OpenAPI schema（无外部 CDN 文档页） |
 
 错误统一：
@@ -532,6 +547,41 @@ Server → Client：
 - 通配 `http://localhost:*` / `http://127.0.0.1:*` 必须显式配置，且只对本机生效；
 - 远程域名不能用通配；被拒请求会记 warning（只记 Origin，不记正文）。
 
+### 10.4 动态 API 连接（`connections/`）
+
+让用户在页面里用 **Base URL + API Key** 接入任意 TTS，而不必改配置重启。
+
+| 模块 | 职责 |
+|---|---|
+| `models.py` | `Protocol`、`DiscoverRequest`、`TestConnectionRequest`、`SaveConnectionRequest`、`ConnectionRecord`、`DiscoveryResult`、`TestResult`、`LastTest` |
+| `security.py` | `validate_base_url()` / `is_local_host()`：scheme、userinfo、fragment、私网、元数据地址、DNS rebinding |
+| `discovery.py` | 四个协议的探测函数 + `auto_discover()`，统一把上游失败映射成 `ConnectionFailure` |
+| `store.py` | `ConnectionStore`（JSON 元数据，原子写 0600）、`KeyStore` / `KeyringKeyStore` / `MemoryKeyStore` |
+| `provider.py` | `ConnectionProvider`：把 `ConnectionRecord` 包成现有适配器，`name=record.id`，`style_family=record.protocol` |
+| `manager.py` | `ConnectionManager`：bootstrap / discover / test / save / delete / list |
+
+**生命周期**
+
+1. `POST /connections/discover` → 协议探测 + 模型/音色列表（只取元数据，不发用户文本）；
+2. `POST /connections/test` → 用固定测试文本合成一次，音频只进本地缓存，**不写记录**；
+3. `POST /connections` → 校验 → 写密钥到 `KeyStore` → 写元数据 → 创建
+   `ConnectionProvider` 并 `registry.add()`；任一步失败会回滚（删密钥、删记录、移除 provider）；
+4. 服务重启时 `ConnectionManager.bootstrap()` 从 `connections.json` 读取记录，
+   逐个从凭据库取密钥并重新注册 provider；取不到密钥的连接会被跳过（记 warning）。
+
+**关键约束**
+
+- 元数据文件**永远不含密钥**；`public_connections()` 只输出 `key_configured: bool`；
+- provider ID 为 `api_<12 hex>`，不加入 `auto_order`，只能显式选择；
+- 情感参数仍按 `provider.style_family` 从 `emotion_styles.yaml` 取，随后
+  `provider.decorate_style()` 把用户选的 voice/model 钉进 style，保证试听与生成一致；
+- `capabilities.data_destination` 被改写为连接自己的名称，避免隐私卡片误报成默认厂商；
+- `external_egress()` 按 Base URL 主机判断，loopback 记为不出网。
+
+**扩展一个新协议**：在 `models.Protocol` 增加字面量 → `discovery.py` 写探测函数并在
+`discover()` / `auto_discover()` 注册 → `provider._BUILDERS` 加一个适配器 → 补
+`test_connections.py` 的探测、保存、端到端用例。
+
 ---
 
 ## 11. 配置与环境变量
@@ -573,6 +623,8 @@ $env:MOODVOICE_LIVE_TESTS="1"; python -m pytest -q -m live -s
 - `test_pipeline.py`：成功、切换、降级、超时、流中断、诊断；
 - `test_adapters.py`：各厂商请求构造与错误映射（mock HTTP）；
 - `test_api.py`：REST/WS/缓存/记录/同源/错误不回显；
+- `test_connections.py`：协议探测、自动识别、URL 校验、保存不落明文、动态 provider、
+  连接相关 API、完整管线、试听不写记录；
 - `test_security_cache.py`：脱敏、路径穿越、清理；
 - `test_live_edge.py`：真实 edge-tts（默认跳过）。
 

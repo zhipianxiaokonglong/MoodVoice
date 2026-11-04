@@ -1,4 +1,4 @@
-# MoodVoice · 情感语音输出层
+﻿# MoodVoice · 情感语音输出层
 
 一个可独立运行的 **标签驱动情感 TTS 输出层**。它接收上游 LLM 已打标的结果，把
 `emotion / type / intent` 分别消费为 **语音风格、文本渲染方式、下游路由**，输出
@@ -48,6 +48,8 @@ python -m emotional_tts demo "今天辛苦了，先慢慢呼吸一下。" --emot
 ## 功能一览
 
 - **6 个内置适配器**：`edge`、OpenAI TTS、ElevenLabs、Azure Neural TTS、MiniMax 海螺、本地 HTTP。
+- **页面内接入任意 TTS API**：填 Base URL + API Key 即可探索模型/音色、试听、保存；
+  支持 OpenAI 兼容、Azure、ElevenLabs、MiniMax 四种协议，密钥进系统凭据库。
 - **统一流式接口**：厂商字节流边到边写入本地缓存；WebSocket 边合成边播放（MSE），首响优先。
 - **可配置情感映射**：`config/emotion_styles.yaml` 定义 12 类情感、133 个中英文别名、语速/音高/音量、厂商覆盖参数。
 - **意图路由**：`config/routes.yaml` 配置 `reply / tool / linkage` 的下游目的地与是否朗读。
@@ -67,7 +69,7 @@ flowchart LR
     R --> P[输出管线]
     I --> P
     S --> P
-    P -->|intent 允许朗读| T[厂商适配器<br/>edge / OpenAI / ElevenLabs / Azure / MiniMax / local]
+    P -->|intent 允许朗读| T[厂商适配器<br/>edge / OpenAI / ElevenLabs / Azure / MiniMax / local<br/>+ 页面接入的 API 连接]
     T -->|流式字节| C[(本地音频缓存)]
     T -->|失败| F[显式降级链]
     F -->|仍失败| X[纯文本降级]
@@ -195,6 +197,34 @@ LOCAL_TTS_URL=http://127.0.0.1:9880/synthesize
 然后执行 `moodvoice providers` 查看就绪状态，重启服务，在 Demo 里切换厂商。
 完整步骤（含各厂商控制台入口）见 [用户文档](docs/USER_GUIDE.md)。
 
+## 页面内接入 API（不改配置、不重启）
+
+如果手上只有某家（或自建网关）的 **Base URL + API Key**，打开 Demo，点“语音厂商”右侧的
+**＋ 接入 API**：
+
+1. 填 Base URL 与 API Key，协议可留“自动识别”；
+2. 点 **探索模型** → 选模型/音色（下拉框缺项时可手填）；
+3. 点 **试听测试**，真实调用一次并播放返回音频；
+4. 填连接名并 **保存**，页面自动切到该连接。
+
+支持的协议与探测内容：
+
+| 协议 | 探索 | 合成端点 |
+|---|---|---|
+| OpenAI 兼容（含 LiteLLM / One API / vLLM-TTS 网关） | `GET /models`，可选 `/audio/voices` | `POST /audio/speech` |
+| Azure Speech | 音色 + 情感风格 | `POST /cognitiveservices/v1` |
+| ElevenLabs | 模型 + 账号音色 | `POST /text-to-speech/{id}/stream` |
+| MiniMax | 账号音色 | `POST /t2a_v2` |
+
+密钥写入**操作系统凭据库**（Windows Credential Manager / macOS Keychain / Linux Secret
+Service），`.data/connections.json` 只存连接名、URL、模型等元数据。凭据库不可用时退化为
+本次会话内存，页面会显示“本次会话”。远程地址必须 HTTPS；`http://` 只允许本机，
+局域网 HTTP 需显式勾选“允许局域网 HTTP”，并拒绝重定向、云元数据地址与 DNS rebinding。
+
+接入的连接以 `api_...` 出现在厂商下拉框，不会进入自动选择顺序；内置厂商与 `.env`
+配置完全不受影响。详见 [用户文档 5.8](docs/USER_GUIDE.md) 与
+[厂商接入 §7](docs/PROVIDERS.md)。
+
 ## 测试
 
 ```powershell
@@ -206,13 +236,14 @@ $env:MOODVOICE_LIVE_TESTS="1"
 python -m pytest -q -m live -s
 ```
 
-最近一次结果（2026-11-03，Windows / Python 3.12.14）：
+最近一次结果（2026-11-04，Windows / Python 3.12.14）：
 
-- `70 passed, 1 skipped`（跳过 live，4.25s）
+- `86 passed, 1 skipped`（跳过 live，5.85 s）
 - live 测试：`1 passed`，真实 edge-tts 首响稳定样本 0.77–1.31 s（网络抖动时可达数秒，仍在超时阈值内）
 - 浏览器端：流式 MSE 播放、9 类上游标签、意图路由、纯文本降级、隐私去向、移动端均通过，无控制台错误
+- 浏览器端（API 接入）：探索 → 试听 → 保存 → REST/WS 生成 → 再次试听 → 删除全流程 40 项断言通过
 - 多厂商切换、显式降级、纯文本降级、流中断清理、日志脱敏、缓存路径穿越、
-  API/WS 契约均有测试覆盖
+  API/WS 契约、API 连接探测与密钥不落明文均有测试覆盖
 
 详细矩阵、根因定位方法与已知限制见
 [`docs/TEST_REPORT.md`](docs/TEST_REPORT.md) 和
@@ -222,7 +253,10 @@ python -m pytest -q -m live -s
 
 - 文本只发往**你选择的 TTS 厂商**或本地服务；没有配置的厂商不会被调用。
 - 厂商降级链必须显式配置；默认失败直接纯文本，不偷偷外发。
-- API 密钥只从本地 `.env` / 环境变量读取，不进浏览器、不进日志、不进 API 响应。
+- API 密钥只从本地 `.env` / 环境变量读取，不进浏览器、不进日志、不进 API 响应；
+  页面内接入的 API 密钥只写操作系统凭据库（不可用时仅本次会话内存），元数据文件不含密钥。
+- 用户填写的 Base URL 只允许 https（本机可用 http），拒绝重定向、私网/云元数据地址与
+  DNS rebinding。
 - 音频缓存位于 `.data/cache/`，UI/API/CLI 均可清除；结构化记录不保存原文。
 - 默认只监听 `127.0.0.1`；非浏览器请求与跨站 Origin 会被拒绝。
 - 每次输出都带 `privacy.external_egress` / `text_sent_to`，REST 另有
@@ -242,6 +276,7 @@ src/emotional_tts/
   rendering.py          # type -> 渲染块 + 朗读稿
   routing.py            # intent -> 下游路由
   providers/            # 可插拔厂商适配器
+  connections/          # 页面内 API 接入：协议探测、URL 校验、密钥库、动态厂商
   storage.py            # 只存结构化情感/风格元数据
   cache.py              # 本地音频缓存与清理
   web/                  # 无构建步骤的 Demo UI

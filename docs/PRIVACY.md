@@ -9,12 +9,13 @@
 
 > 用户文本只会被发送到**用户为本次合成选择的 TTS 厂商**（或用户配置的本地服务）。
 > 没有隐式遥测，没有第三方 CDN，没有把文本写入日志或数据库。密钥仅在服务端内存中
-> 使用，来源是本地 `.env`/环境变量。
+> 使用，来源是本地 `.env`/环境变量，或操作系统凭据库（页面内接入的 API 连接）。
 
 例外必须显式且可见：
 
 - `edge-tts` 是**在线**服务：选择它意味着朗读文本会发往微软；
 - 配置了 `EMOTION_TTS_FALLBACK_PROVIDERS`：失败时文本会发往链中列出的厂商；
+- 页面内接入的 API 连接：文本只会发往该连接配置的 Base URL；
 - 用户自行把服务暴露到局域网/公网：超出本项目的默认安全边界。
 
 ---
@@ -33,7 +34,9 @@ FastAPI（仅 127.0.0.1，默认）
    │       └── 返回音频字节
    │
    ├──► .data/cache/*.mp3|wav（本地音频）
-   └──► .data/records.sqlite3（仅标签/风格/延迟/结果，不含原文）
+   ├──► .data/records.sqlite3（仅标签/风格/延迟/结果，不含原文）
+   ├──► .data/connections.json（连接名称/URL/模型，**不含密钥**）
+   └──► 操作系统凭据库（仅页面内接入的 API 密钥）
    │
    ▼
 输出事件（text + audio_ref + style + diagnostics）
@@ -86,6 +89,24 @@ FastAPI（仅 127.0.0.1，默认）
 - 怀疑泄漏时：厂商控制台吊销 → 更新 `.env` → 重启服务 → 检查账单；
 - `.env` 权限建议 `chmod 600`（Windows 依赖用户目录 ACL；项目会提示 POSIX 权限问题）。
 
+### 4.4 页面内接入的密钥（凭据库）
+
+页面里 “[＋ 接入 API](USER_GUIDE.md)” 输入的密钥走另一条存储路径：
+
+| 项目 | 行为 |
+|---|---|
+| 存储位置 | 操作系统凭据库（Windows Credential Manager / macOS Keychain / Linux Secret Service） |
+| 服务名 | `moodvoice.tts.connection`，每个连接一个条目，账号名为连接 ID |
+| 明文落盘 | **不会**。`.data/connections.json` 只写 `id/协议/URL/标签/模型/音色/区域` 等元数据 |
+| 凭据库不可用 | 退化为进程内存（页面显示“本次会话”），重启即失效，不落盘 |
+| 浏览器 | 不写 `localStorage`/`sessionStorage`/Cookie；保存后立即清空输入框；不回显 |
+| 日志/响应 | `public_connections()`、健康检查、错误信息都只含 `key_configured: true/false` |
+| 脱敏 | 已加载的密钥会注册进 `sanitize_message`，异常与日志中被替换 |
+| 删除连接 | 同时删除凭据库条目、`.data/connections.json` 记录与已注册厂商 |
+
+密钥只经本机 HTTP 从浏览器提交给本机服务一次（同源校验生效）；服务端不会把它转发
+给任何第三方，只会作为该连接请求的鉴权头发往用户填写的 Base URL。
+
 ---
 
 ## 5. 音频缓存
@@ -137,14 +158,29 @@ SQLite 表 `output_records` 保存：
 | `azure` | Azure AI Speech | 是 |
 | `minimax` | MiniMax API | 是 |
 | `local` | 用户配置的 URL | 取决于该 URL 是否为本机 |
+| 页面接入的 API 连接 | 用户填写的 Base URL | 是，除非该 URL 指向本机/局域网 |
 | 纯文本降级 | 无 | 否 |
 
 - 没有配置的厂商不会被调用；
-- 自动模式只选择已就绪的厂商；
+- 自动模式只选择已就绪的厂商（用户接入的 API 连接**不参与**自动选择）；
 - 降级链必须显式配置，避免“失败后偷偷发到另一家”；
 - 本地服务如果配置成远程 URL，文本同样会离开本机；请自行确认；
 - 每次输出都带顶层 `privacy`（`external_egress`、`text_sent_to`、`summary`）和
   `X-MoodVoice-Egress` 响应头，UI 结果区直接显示“已出网/本机/未发送”。
+
+### 7.3 用户填写的 Base URL（服务端请求伪造防护）
+
+页面接入的 URL 由用户输入，服务端会用它发起请求，因此入口处做了限制：
+
+- 只允许 `http` / `https`，其余 scheme 一律拒绝；
+- 拒绝含用户名/密码的 URL、含 fragment 的 URL；
+- `http://` 仅允许 loopback（`127.0.0.1`、`localhost`、`::1`）；局域网地址必须由
+  用户显式勾选“允许局域网 HTTP”，否则拒绝；
+- 拒绝云元数据地址（`169.254.169.254`、`metadata.*`、`*.internal` 等）和链路本地地址；
+- 解析后的地址若落在私有/保留网段而用户未显式允许，拒绝；
+- 公网域名解析到 loopback 时拒绝（DNS rebinding）；
+- `httpx` 客户端 `follow_redirects=False`，避免被 3xx 引导到内网；
+- 发现阶段的响应体上限 4 MB，超出直接拒绝解析。
 
 ### 7.2 本地入口
 
@@ -203,6 +239,8 @@ SQLite 表 `output_records` 保存：
 | 缓存文件被遍历 | 随机文件名 + 白名单正则 + resolve 父目录校验 |
 | 未清理音频长期留存 | TTL + 数量上限 + UI/API/CLI 清除 |
 | 失败后意外外发到其他厂商 | 默认纯文本；降级链必须显式配置 |
+| 恶意 Base URL 打内网/元数据接口 | scheme/loopback 白名单 + 私网拦截 + 禁止重定向 + DNS rebinding 检查 |
+| 用户密钥被写进仓库/日志 | 元数据文件不含密钥；密钥只进系统凭据库；脱敏 formatter |
 | 局域网他人使用 | 默认不监听局域网；远程需自行加认证 |
 
 ---

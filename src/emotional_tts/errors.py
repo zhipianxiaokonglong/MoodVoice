@@ -31,6 +31,27 @@ class CacheError(MoodVoiceError):
     code = "cache_error"
 
 
+class ConnectionFailure(MoodVoiceError):
+    """A user-facing API connection/discovery failure."""
+
+    code = "connection_error"
+    http_status = 400
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "connection_error",
+        stage: str = "connection",
+        details: dict[str, Any] | None = None,
+        http_status: int = 400,
+    ) -> None:
+        super().__init__(message, code=code)
+        self.stage = stage
+        self.details = details or {}
+        self.http_status = http_status
+
+
 class ProviderError(MoodVoiceError):
     """A vendor/adapter failure that is safe to expose.
 

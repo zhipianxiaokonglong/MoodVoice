@@ -11,7 +11,8 @@
 - Windows / macOS / Linux
 - 首次安装依赖时需要网络
 - 使用默认 `edge-tts` 时需要能访问微软在线朗读服务（不需要账号或密钥）
-- 若要求文本完全不出本机，请直接使用 `local` 适配器（见第 6 节）
+- 若要求文本完全不出本机，请直接使用 `local` 适配器（见 5.7）
+- 不想改配置文件时，可以在页面里直接接入任意 TTS API（见 5.8）
 
 检查：
 
@@ -254,6 +255,59 @@ providers:
 
 也可以选择 `edge` 做免密钥演示，但要清楚它是**在线**服务，不是本地推理。
 
+### 5.8 页面内接入：URL + API Key（四种协议）
+
+如果你手上只有某家（或自建网关）的 **Base URL** 和 **API Key**，又不想改
+`config/app.yaml`、不想重启服务，用这条路径。它和 5.3–5.7 的 `.env` 方式是并存的：
+内置厂商照旧可用，接入的连接会以一个 `api_...` 的厂商 ID 出现在下拉框里。
+
+**操作步骤**
+
+1. 启动 Demo，在“语音厂商”右侧点击 **＋ 接入 API**；
+2. 填 **Base URL**（例如 `https://api.openai.com/v1`）和 **API Key**；
+3. 协议先保留“自动识别”；点 **探索模型**；
+4. 识别成功后，在“模型 / 音色”下拉框里选择实际要用的组合
+   （下拉框没有你想要的值时，可在下方“手动填写”输入框补上）；
+5. 点 **试听测试**，会用一句固定测试文本真实调用一次厂商，并直接播放返回音频；
+6. 填一个**连接名称**，点 **保存连接**。保存后页面会自动切换到该连接；
+7. 之后正常“生成情感语音”，结果区的“本次文本去向”会写明是这个连接。
+
+**四种协议各自会发现什么**
+
+| 协议 | Base URL 示例 | 自动探索 | 鉴权头 |
+|---|---|---|---|
+| OpenAI 兼容 | `https://api.openai.com/v1` | 模型列表；若服务提供 `/audio/voices` 则用它的音色，否则列 OpenAI 常用音色 | `Authorization: Bearer` |
+| Azure Speech | `https://<region>.tts.speech.microsoft.com` | 音色 + 每个音色支持的情感风格 | `Ocp-Apim-Subscription-Key` |
+| ElevenLabs | `https://api.elevenlabs.io/v1` | 模型 + 账号下的音色 | `xi-api-key` |
+| MiniMax | `https://api.minimax.chat/v1/t2a_v2` | 账号下的系统音色（模型用固定列表） | `Authorization: Bearer` |
+
+> 兼容网关（One API、LiteLLM、vLLM-TTS 等）通常选 “OpenAI 兼容” 即可：只要它实现
+> 了 `GET /models` 和 `POST /audio/speech`。
+
+**密钥存在哪里**
+
+- 默认写入**操作系统凭据库**：Windows 凭据管理器、macOS Keychain、Linux Secret
+  Service；连接名称、URL、模型等元数据写在 `.data/connections.json`，**不含密钥**；
+- 系统没有可用凭据库时，页面会显示“本次会话”，密钥只存在于服务进程内存中，
+  重启服务后需要重新填写（服务不会把密钥落盘到任何地方）；
+- 密钥只在你本机的浏览器 → 本机服务之间传输一次，页面不会写 `localStorage`、
+  不会回显、保存后输入框会被清空；日志和 API 响应都不含密钥值。
+
+**安全限制（有意为之）**
+
+- 只接受 `https://`；`http://` 仅允许 `127.0.0.1` / `localhost` / `::1`；
+- 想让服务访问局域网里的 TTS（例如自建 GPU 机器），必须显式勾选
+  **“允许局域网 HTTP（仅当你信任该服务）”**；
+- 拒绝跳转（3xx）、拒绝带用户名密码的 URL、拒绝云主机元数据地址与链路本地地址；
+- 公网域名若解析到本机地址会被拒绝（防 DNS rebinding）；内网/局域网地址在未勾选
+  “允许局域网 HTTP” 时同样会被拒绝。
+
+**修改与删除**
+
+- 再次点“接入 API”可以新增更多连接，每个连接独立保存密钥与默认模型/音色；
+- “已保存的 API 连接”里可以随时 **试听**（不改动正式记录）；
+- **删除** 会同时移除本地元数据、凭据库条目和已注册的厂商，不可撤销。
+
 ---
 
 ## 6. 厂商切换与降级
@@ -275,7 +329,9 @@ API 可直接传 OmniNexus 的 9 类原值，无需组装层先做映射。
 - **默认值**：`.env` 的 `EMOTION_TTS_PROVIDER=auto` 或某个厂商 ID；
 - **自动模式**：按 `config/app.yaml` 的 `auto_order` 选第一个“已就绪”的厂商。
 
-可用厂商 ID：`edge`、`openai`、`elevenlabs`、`azure`、`minimax`、`local`。
+可用厂商 ID：`edge`、`openai`、`elevenlabs`、`azure`、`minimax`、`local`，
+以及你在页面里保存的 API 连接（`api_` 开头的 ID）。API 连接不会进入自动选择
+顺序——`auto` 永远只在上面 6 个内置厂商里挑，避免页面外的默认流量被静默改道。
 
 ### 6.2 降级规则
 
@@ -347,6 +403,11 @@ moodvoice cache clear --records
 | 代理/Vite 页面访问返回 403 `origin_not_allowed` | 页面 Origin 不在白名单 | 在 `.env` 配置实际页面 Origin，例如 `EMOTION_TTS_ALLOWED_ORIGINS=http://localhost:1420`；开发期可显式使用 `http://localhost:*`（仅本机） |
 | 上游传入 `session_id` 不是 UUID 或被省略 | 旧版本强制 UUID | 已兼容：非 UUID 原样接受，缺失时由 `event_id` 派生，返回 `diagnostics.session.source` |
 | 本地服务 `format_mismatch` | 返回音频格式与 `providers.local.format` 不一致 | 让两者一致（WAV/MP3），不要只改文件后缀 |
+| 接入 API 时“探索失败 / 401” | Key 错、无权限，或 URL 少了 `/v1` | 用 curl 直接请求 `GET <Base URL>/models` 验证；确认协议选对了 |
+| 接入 API 时“该地址没有预期的 API 端点” | Base URL 填成了控制台地址或漏了版本前缀 | 参考 5.8 表格里的示例路径 |
+| 接入 API 时“本次会话”而不是“系统凭据库” | 系统没有可用凭据库（如精简容器、无桌面会话） | 不影响使用，但重启后要重填密钥；也可安装 `keyring` 对应的系统后端 |
+| 试听成功，正式生成却失败 | 正式生成会带上情感风格参数，某模型不接受 | 换支持该参数的模型，或用 `moodvoice diagnose` 看实际请求体 |
+| 局域网 TTS 用 HTTP 被拒 | 默认只允许本机 HTTP | 勾选“允许局域网 HTTP（仅当你信任该服务）” |
 | 有文字没声音 | 意图是 `tool`/`linkage`，或厂商失败 | 看 `route.synthesize` 与 `degraded`；切换意图/厂商 |
 | 浏览器无法流式播放 | 浏览器不支持该 MIME 的 MSE | 会自动退化为整段播放；仍可下载音频；首响指标在服务端有效 |
 | 端口被占用 | 8765 已被其他程序使用 | `moodvoice serve --port 8787`，同时访问新地址 |
@@ -371,6 +432,9 @@ EMOTION_TTS_PORT=8765
 
 - [ ] `.env` 在 `.gitignore` 中，且没有被 `git add -f`
 - [ ] 密钥只在自己的机器上，未出现在 Demo、日志、Issue、截图里
+- [ ] 用页面接入的 API 连接，密钥确实进了系统凭据库（页面显示“系统凭据库”）；
+      如果显示“本次会话”，确认这是你接受的临时状态
+- [ ] 只为确实需要的连接勾选“允许局域网 HTTP”
 - [ ] 使用 `moodvoice providers` 验证，而不是在终端 `echo` 密钥
 - [ ] 默认只监听 `127.0.0.1`
 - [ ] 不需要语料留存时，定期“清除本地数据”

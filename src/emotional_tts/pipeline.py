@@ -144,7 +144,8 @@ class OutputPipeline:
         candidates = self._plan_candidates(requested)
 
         by_provider = {
-            name: self.styles.provider_params(emotion, name) for name in self.registry.providers
+            name: self.styles.provider_params(emotion, provider.style_family)
+            for name, provider in self.registry.providers.items()
         }
         diagnostics = DiagnosticsPayload(
             emotion_mapping={
@@ -312,7 +313,8 @@ class OutputPipeline:
                 continue
 
             try:
-                style_params = self.styles.provider_params(prepared.emotion, provider.name)
+                style_params = self.styles.provider_params(prepared.emotion, provider.style_family)
+                style_params = provider.decorate_style(style_params)
                 selected_params = style_params
                 fmt = normalize_audio_format(provider.audio_format)
                 request = SynthesisRequest(

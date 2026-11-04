@@ -55,6 +55,7 @@ class SynthesisRequest:
 class TTSProvider(ABC):
     name: ClassVar[str] = "base"
     display_name: ClassVar[str] = "Base"
+    kind: ClassVar[str] = "builtin"
     capabilities: ClassVar[ProviderCapabilities]
 
     def __init__(self, config: Any, *, timeout_seconds: float = 30.0) -> None:
@@ -80,6 +81,25 @@ class TTSProvider(ABC):
         """Whether this provider sends text outside the current machine."""
 
         return self.capabilities.external_egress
+
+    @property
+    def style_family(self) -> str:
+        """Key used by emotion_styles.yaml provider_overrides.
+
+        Built-ins use their own name. User API connections override this with
+        the underlying protocol (openai/azure/elevenlabs/minimax).
+        """
+
+        return self.name
+
+    def decorate_style(self, style: dict[str, Any]) -> dict[str, Any]:
+        """Allow a provider/connection to pin user-selected voice/model.
+
+        The default keeps the YAML mapping untouched; connections override it
+        so a voice chosen in the UI is not silently replaced by the style map.
+        """
+
+        return style
 
     def resolve_voice(self, request: SynthesisRequest) -> str | None:
         return request.voice
@@ -122,6 +142,7 @@ class TTSProvider(ABC):
         return {
             "id": self.name,
             "display_name": self.display_name,
+            "kind": self.kind,
             "ready": ready,
             "missing": missing,
             "capabilities": capabilities,
