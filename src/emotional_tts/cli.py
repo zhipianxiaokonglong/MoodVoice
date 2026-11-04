@@ -151,6 +151,7 @@ def _demo(args: argparse.Namespace) -> int:
 def _providers(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     registry = build_registry(config, Secrets.from_env())
+    connections = _bootstrap_connections(config, registry)
     try:
         print(
             json.dumps(
@@ -158,6 +159,8 @@ def _providers(args: argparse.Namespace) -> int:
                     "default_provider": config.tts.provider,
                     "fallback_providers": config.tts.fallback_providers,
                     "providers": registry.public_catalog(),
+                    "connections": connections.public_connections(),
+                    "connection_key_storage": connections.key_storage(),
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -168,6 +171,21 @@ def _providers(args: argparse.Namespace) -> int:
     return 0
 
 
+def _bootstrap_connections(config, registry):
+    """Load saved API connections so the CLI sees the same vendors as the UI."""
+
+    from .connections.manager import ConnectionManager
+
+    manager = ConnectionManager(
+        config,
+        styles=load_stylebook(config.styles_path),
+        cache=AudioCache(config.data_path / "cache"),
+        registry=registry,
+    )
+    manager.bootstrap()
+    return manager
+
+
 def _diagnose(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     secrets = Secrets.from_env()
@@ -176,15 +194,7 @@ def _diagnose(args: argparse.Namespace) -> int:
     registry = build_registry(config, secrets)
     resolved = styles.resolve(args.emotion)
     requested = args.provider.strip().lower()
-    from .connections.manager import ConnectionManager
-
-    connections = ConnectionManager(
-        config,
-        styles=styles,
-        cache=AudioCache(config.data_path / "cache"),
-        registry=registry,
-    )
-    connections.bootstrap()
+    _bootstrap_connections(config, registry)
     provider = registry.get(requested) if requested != "auto" else registry.auto_provider()
     if provider is None:
         print(
