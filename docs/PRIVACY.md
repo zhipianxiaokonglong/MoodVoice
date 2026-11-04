@@ -98,6 +98,7 @@ FastAPI（仅 127.0.0.1，默认）
 | 存储位置 | 操作系统凭据库（Windows Credential Manager / macOS Keychain / Linux Secret Service） |
 | 服务名 | `moodvoice.tts.connection`，每个连接一个条目，账号名为连接 ID |
 | 明文落盘 | **不会**。`.data/connections.json` 只写 `id/协议/URL/标签/模型/音色/区域` 等元数据 |
+| URL 查询串 | 会原样保留（部分网关需要 `?api-version=`）。常见密钥参数（`api_key=`/`token=`/`access_token=`/`subscription-key=`）会被拒绝，但**不要把其他密钥放进 query**，它会出现在元数据文件与健康检查里 |
 | 凭据库不可用 | 退化为进程内存（页面显示“本次会话”），重启即失效，不落盘 |
 | 浏览器 | 不写 `localStorage`/`sessionStorage`/Cookie；保存后立即清空输入框；不回显 |
 | 日志/响应 | `public_connections()`、健康检查、错误信息都只含 `key_configured: true/false` |
