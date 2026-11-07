@@ -24,6 +24,7 @@ from .connections.models import (
     TestConnectionRequest,
     TestResult,
 )
+from .contract import ContractProvider
 from .contracts import InputEvent, OutputEvent
 from .errors import (
     CacheError,
@@ -32,6 +33,7 @@ from .errors import (
     MoodVoiceError,
     ProviderError,
     ValidationError,
+    is_retryable,
 )
 from .pipeline import OutputPipeline, SynthesisHooks
 from .providers.base import SynthesisRequest
@@ -120,6 +122,8 @@ def create_app(
     api.state.records = records
     api.state.pipeline = pipeline
     api.state.connections = connections
+    contract = ContractProvider(styles=styles, router=router, config=app_config, app=api)
+    api.state.contract = contract
     allowed_origins = _allowed_origins(app_config)
 
     @api.middleware("http")
@@ -129,14 +133,17 @@ def create_app(
             logger.warning("rejected origin=%r path=%s", origin[:200], request.url.path)
             return JSONResponse(
                 status_code=403,
+                headers={"X-MoodVoice-Contract-Version": contract.version},
                 content={
                     "error": {
                         "code": "origin_not_allowed",
                         "message": "请求来源未被允许。请通过本机 Demo 页面访问。",
+                        "retryable": is_retryable("origin_not_allowed"),
                     }
                 },
             )
         response = await call_next(request)
+        response.headers.setdefault("X-MoodVoice-Contract-Version", contract.version)
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "no-referrer")
         response.headers.setdefault(
@@ -177,6 +184,7 @@ def create_app(
                 "error": {
                     "code": "invalid_event",
                     "message": "请求参数不符合契约。",
+                    "retryable": is_retryable("invalid_event"),
                     "details": errors,
                 }
             },
@@ -184,21 +192,18 @@ def create_app(
 
     @api.exception_handler(MoodVoiceError)
     async def moodvoice_handler(request: Request, exc: MoodVoiceError):
-        return JSONResponse(
-            status_code=exc.http_status,
-            content={
-                "error": {
-                    "code": exc.code,
-                    "message": sanitize_message(exc.message),
-                    **(
-                        {"details": exc.details}
-                        if isinstance(getattr(exc, "details", None), dict)
-                        and getattr(exc, "details", None)
-                        else {}
-                    ),
-                }
-            },
-        )
+        payload: dict[str, Any] = {
+            "code": exc.code,
+            "message": sanitize_message(exc.message),
+            "retryable": bool(getattr(exc, "retryable", is_retryable(exc.code))),
+        }
+        request_id = getattr(exc, "request_id", None)
+        if request_id:
+            payload["request_id"] = sanitize_message(str(request_id), limit=120)
+        details = getattr(exc, "details", None)
+        if isinstance(details, dict) and details:
+            payload["details"] = details
+        return JSONResponse(status_code=exc.http_status, content={"error": payload})
 
     @api.exception_handler(Exception)
     async def unhandled_handler(request: Request, exc: Exception):
@@ -209,6 +214,7 @@ def create_app(
                 "error": {
                     "code": "internal_error",
                     "message": "输出层发生内部错误，请查看本地日志。",
+                    "retryable": is_retryable("internal_error"),
                 }
             },
         )
@@ -222,12 +228,14 @@ def create_app(
         else:
             code = "http_error"
             message = str(detail) if detail else "请求失败。"
+        public_code = sanitize_message(code, limit=80)
         return JSONResponse(
             status_code=exc.status_code,
             content={
                 "error": {
-                    "code": sanitize_message(code, limit=80),
+                    "code": public_code,
                     "message": sanitize_message(message),
+                    "retryable": is_retryable(public_code),
                 }
             },
             headers=getattr(exc, "headers", None),
@@ -249,6 +257,7 @@ def create_app(
                 "version": app_config.app.version,
                 "language": app_config.app.language,
             },
+            **contract.summary(),
             "providers": registry.public_catalog(),
             "default_provider": app_config.tts.provider,
             "auto_ready": registry.first_ready_name(),
@@ -282,6 +291,12 @@ def create_app(
                 "origin_wildcards_enabled": any("*" in item for item in allowed_origins),
             },
         }
+
+    @api.get("/api/v1/contract")
+    async def interface_contract() -> dict[str, Any]:
+        """Machine-readable contract: tags, output, errors, limits, endpoints."""
+
+        return contract.document()
 
     @api.post("/api/v1/outputs", response_model=OutputEvent)
     async def outputs(
@@ -484,17 +499,16 @@ def create_app(
             return
         except ProviderError as exc:
             try:
-                await websocket.send_json(
-                    {
-                        "type": "error",
-                        "error": {
-                            "code": exc.code,
-                            "message": sanitize_message(exc.message),
-                            "stage": exc.stage,
-                            "midstream": bool(exc.details.get("midstream")),
-                        },
-                    }
-                )
+                error_payload: dict[str, Any] = {
+                    "code": exc.code,
+                    "message": sanitize_message(exc.message),
+                    "retryable": exc.retryable,
+                    "stage": exc.stage,
+                    "midstream": bool(exc.details.get("midstream")),
+                }
+                if exc.request_id:
+                    error_payload["request_id"] = sanitize_message(str(exc.request_id), limit=120)
+                await websocket.send_json({"type": "error", "error": error_payload})
             except Exception:
                 pass
         except (ValidationError, MoodVoiceError) as exc:
@@ -505,6 +519,7 @@ def create_app(
                         "error": {
                             "code": exc.code,
                             "message": sanitize_message(exc.message),
+                            "retryable": bool(getattr(exc, "retryable", False)),
                         },
                     }
                 )
@@ -519,6 +534,7 @@ def create_app(
                         "error": {
                             "code": "internal_error",
                             "message": "输出层发生内部错误，请查看本地日志。",
+                            "retryable": is_retryable("internal_error"),
                         },
                     }
                 )
