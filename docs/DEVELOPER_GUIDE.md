@@ -27,6 +27,7 @@
 
 ```text
 api.py            FastAPI、REST、WebSocket、Origin/CSP、错误处理
+contract.py       机器可读契约（版本/哈希/标签/错误码/端点）
 contracts.py      输入/输出 Pydantic 模型
 pipeline.py       prepare -> 候选厂商 -> 流式合成 -> 降级 -> 记录
 styles.py         标签归一化、别名索引、厂商参数
@@ -482,7 +483,8 @@ moodvoice cache clear --records
 
 | Method | Path | 用途 |
 |---|---|---|
-| GET | `/api/health` | 厂商就绪状态、缓存统计、隐私边界 |
+| GET | `/api/health` | 厂商就绪状态、缓存统计、隐私边界、契约版本 |
+| GET | `/api/v1/contract` | 机器可读契约（标签/输出/错误码/上限/端点） |
 | POST | `/api/v1/outputs?provider=...` | 处理一条事件 |
 | GET | `/api/v1/audio/{filename}` | 取本地音频（`no-store`，文件名白名单） |
 | GET | `/api/v1/records?limit=&offset=` | 结构化记录 |
@@ -503,10 +505,12 @@ moodvoice cache clear --records
 错误统一：
 
 ```json
-{"error": {"code": "...", "message": "...", "details": []}}
+{"error": {"code": "...", "message": "...", "retryable": true, "request_id": "...", "details": []}}
 ```
 
-校验错误不会回显输入 `input`（避免把原文复制到错误日志/界面）。
+- `retryable` **一定存在**，由错误实例决定，缺席时查 `errors.RETRYABLE_CODES`；
+- `request_id` 只在拿到上游 ID 时出现；
+- 校验错误不会回显输入 `input`（避免把原文复制到错误日志/界面）。
 
 ### 10.2 WebSocket
 
@@ -529,7 +533,7 @@ Server → Client：
 错误：
 
 ```json
-{"type":"error","error":{"code":"timeout","message":"...","stage":"provider_ttfb","midstream":false}}
+{"type":"error","error":{"code":"timeout","message":"...","retryable":true,"stage":"provider_ttfb","midstream":false}}
 ```
 
 客户端应：
@@ -540,14 +544,21 @@ Server → Client：
 - 从 `done.output.privacy` 读取实际文本去向，并展示 `external_egress`；
 - 每次生成使用新连接，不并发复用。
 
-### 10.3 Origin 策略
+### 10.3 契约端点
+
+`GET /api/v1/contract` 由 `contract.py` 从运行中配置生成（别名表、路由、上限、错误码、注册路由），
+并带 `contract_hash`；所有响应头带 `X-MoodVoice-Contract-Version`。版本语义、消费方接入与
+情绪 12/9 口径见 [CONTRACT.md](CONTRACT.md)。新增错误码时必须同时登记
+`errors.RETRYABLE_CODES`，否则 `tests/test_contract.py` 会失败。
+
+### 10.4 Origin 策略
 
 - 默认只允许 `http://127.0.0.1:<端口>`、`http://localhost:<端口>`；
 - `EMOTION_TTS_ALLOWED_ORIGINS` 可加精确 Origin（代理/局域网/Vite）；
 - 通配 `http://localhost:*` / `http://127.0.0.1:*` 必须显式配置，且只对本机生效；
 - 远程域名不能用通配；被拒请求会记 warning（只记 Origin，不记正文）。
 
-### 10.4 动态 API 连接（`connections/`）
+### 10.5 动态 API 连接（`connections/`）
 
 让用户在页面里用 **Base URL + API Key** 接入任意 TTS，而不必改配置重启。
 
@@ -630,6 +641,7 @@ $env:MOODVOICE_LIVE_TESTS="1"; python -m pytest -q -m live -s
 - `test_api.py`：REST/WS/缓存/记录/同源/错误不回显；
 - `test_connections.py`：协议探测、自动识别、URL 校验、保存不落明文、动态 provider、
   连接相关 API、完整管线、试听不写记录；
+- `test_contract.py`：契约与配置/路由/错误码/端点一致、哈希稳定性、`retryable` 语义；
 - `test_security_cache.py`：脱敏、路径穿越、清理；
 - `test_live_edge.py`：真实 edge-tts（默认跳过）。
 

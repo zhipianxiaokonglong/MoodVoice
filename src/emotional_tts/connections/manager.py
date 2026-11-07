@@ -495,6 +495,7 @@ def _connection_failure(exc: ProviderError) -> ConnectionFailure:
         stage=exc.stage,
         details=exc.as_attempt(),
         http_status=status,
+        retryable=exc.retryable,
     )
 
 

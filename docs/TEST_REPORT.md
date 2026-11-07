@@ -1,12 +1,12 @@
 # 测试报告
 
-- 日期：2026-10-24（M-01~M-05 修复复验：2026-11-03；API 接入模式：2026-11-04）
+- 日期：2026-10-24（M-01~M-05 复验：2026-11-03；API 接入：2026-11-04；接口契约：2026-11-07）
 - 环境：Windows 11 (10.0.26200)，Python 3.12.14
 - 依赖：FastAPI 0.162.0，Pydantic 2.14.1，httpx 0.28.1，edge-tts 7.3.1，pytest 8.4.2，keyring 25.x
-- 代码版本：v1.0.0 + 审计修复 + API 接入模式
-- 结论：**通过**。92 个自动化测试通过，1 个依赖真实 edge-tts 的 live 测试通过；
+- 代码版本：v1.0.0 + 审计修复 + API 接入模式 + 接口契约 1.1.0
+- 结论：**通过**。107 个自动化测试通过，1 个依赖真实 edge-tts 的 live 测试通过；
   浏览器端覆盖流式、9 类标签、纯文本路由、纯文本降级、移动端，以及 API 连接面板的
-  探索/试听/保存/切换/删除全流程，无控制台错误、无失败请求。
+  探索/试听/保存/切换/删除全流程，无控制台错误、无失败请求；机器可读契约与实现一致。
 
 ---
 
@@ -20,7 +20,7 @@ python -m pytest -q
 
 ```text
 .............................s.......................................     [100%]
-92 passed, 1 skipped, 1 warning in 5.56s
+107 passed, 1 skipped, 1 warning in 7.60s
 ```
 
 跳过项是 `tests/test_live_edge.py`（默认不访问外网）。warning 为 Starlette
@@ -35,7 +35,7 @@ python -m pytest -q -m live -s
 
 ```text
 .
-1 passed, 92 deselected, 1 warning (final verification: 2.50s)
+1 passed, 107 deselected, 1 warning (final verification: 1.45s)
 ```
 
 覆盖：真实网络、真实 MP3、音频文件 > 1 KB、端到端首响 < 15 s。
@@ -90,6 +90,27 @@ All checks passed!
 | 空白连接名 | Pydantic 直接拒绝（去掉首尾空格后为空） |
 
 浏览器端另有一轮 40 项断言的端到端检查（见 4.1）。
+
+### 1.6 接口契约（`tests/test_contract.py`，15 个用例）
+
+| 用例 | 断言 |
+|---|---|
+| 契约 ↔ 情绪配置 | `canonical` 与 `emotion_styles.yaml` 完全一致；每条别名都能在契约里查到归属 |
+| 契约 ↔ 路由配置 | `intent` 集合、`unknown_destination`、每个 intent 的 destination/synthesize 一致 |
+| 契约 ↔ 注册路由 | `endpoints` 与 `app.routes` 逐条一致（防止手写漂移），且含 `/api/v1/contract` |
+| 错误码登记 | 扫描 `src/` 中所有 `code="…"` 字面量，全部必须出现在 `errors.RETRYABLE_CODES` |
+| `retryable` 语义 | 表内全是布尔；`timeout=true`、`auth_failed=false`、未知码=false |
+| 9 类上游集合 | `accepted_upstream_sets.omninexus_v1` 全部可由别名命中；`fear→sadness`、`confusion→frustration`、`gratitude→joy` 显式存在 |
+| 哈希稳定性 | 两次构建相同；仅改 `tone` 文案时哈希不变 |
+| 契约端点 | 200；版本、必需字段、`schema_version=1.0`、错误码/上限正确；health 与端点一致 |
+| 版本响应头 | `/`、`/api/health`、`/api/v1/records` 均带 `X-MoodVoice-Contract-Version` |
+| 无敏感信息 | 契约文本不含 `api_key`、`127.0.0.1`、`sk-` |
+| 错误体 `retryable` | 422→false、音频 404→false、连接 404→false |
+| 连接超时 | `ConnectionFailure(code="timeout")` 的 `retryable=true`、HTTP 504 |
+| WS 错误帧 | 超长内容 → `error.code=content_too_long`、`retryable=false` |
+| ContractProvider | 文档只构建一次（同一对象）、`summary()` 可序列化 |
+
+契约的消费方接入说明与 12/9 口径结论见 [CONTRACT.md](CONTRACT.md)。
 
 ---
 

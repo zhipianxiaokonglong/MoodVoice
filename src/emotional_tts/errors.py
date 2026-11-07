@@ -4,12 +4,90 @@ from __future__ import annotations
 
 from typing import Any
 
+# ---------------------------------------------------------------------------
+# Public error catalog
+# ---------------------------------------------------------------------------
+# ``retryable`` answers one question for a consumer: "may I send this exact
+# request again without changing anything?" Every code MoodVoice can emit is
+# registered here; tests/test_contract.py fails when a new literal code appears
+# in src/ but is missing from this table (so the machine-readable contract
+# cannot drift from the code).
+#
+# HTTP status is deliberately not part of the catalog: the same code can
+# surface with different statuses depending on where it was raised
+# (``timeout`` is 504 from a connection test, but formal synthesis degrades to
+# a HTTP 200 output event). Consumers should branch on ``retryable`` instead of
+# guessing from a status code.
+
+RETRYABLE_CODES: dict[str, bool] = {
+    # transient / worth retrying
+    "timeout": True,
+    "upstream_timeout": True,
+    "upstream_conflict": True,
+    "rate_limited": True,
+    "upstream_error": True,
+    "network_error": True,
+    "empty_audio": True,
+    "stream_interrupted": True,
+    "cache_write_failed": True,
+    "key_store_unavailable": True,
+    "internal_error": True,
+    "unexpected_status": True,
+    # deterministic / retrying the same request cannot help
+    "adapter_error": False,
+    "audio_not_found": False,
+    "auth_failed": False,
+    "blocked_loopback_resolution": False,
+    "blocked_private_network": False,
+    "blocked_url": False,
+    "cache_error": False,
+    "connection_error": False,
+    "connection_not_found": False,
+    "connection_not_ready": False,
+    "content_too_long": False,
+    "discovery_failed": False,
+    "edge_tts_error": False,
+    "endpoint_not_found": False,
+    "format_mismatch": False,
+    "http_error": False,
+    "insecure_url": False,
+    "invalid_connection": False,
+    "invalid_configuration": False,
+    "invalid_event": False,
+    "invalid_protocol": False,
+    "invalid_response": False,
+    "invalid_style": False,
+    "invalid_url": False,
+    "missing_credentials": False,
+    "missing_voice": False,
+    "moodvoice_error": False,
+    "no_models": False,
+    "no_ready_provider": False,
+    "no_voices": False,
+    "not_audio": False,
+    "origin_not_allowed": False,
+    "protocol_detection_failed": False,
+    "provider_error": False,
+    "provider_rejected": False,
+    "redirect_not_allowed": False,
+    "response_too_large": False,
+    "unknown_provider": False,
+    "unsupported_format": False,
+}
+
+
+def is_retryable(code: str | None) -> bool:
+    """Catalog lookup; unknown codes are treated as not retryable."""
+
+    return RETRYABLE_CODES.get(str(code or ""), False)
+
 
 class MoodVoiceError(Exception):
     """Base error with a stable, public code."""
 
     code = "moodvoice_error"
     http_status = 500
+    retryable = False
 
     def __init__(self, message: str, *, code: str | None = None) -> None:
         super().__init__(message)
@@ -45,11 +123,13 @@ class ConnectionFailure(MoodVoiceError):
         stage: str = "connection",
         details: dict[str, Any] | None = None,
         http_status: int = 400,
+        retryable: bool | None = None,
     ) -> None:
         super().__init__(message, code=code)
         self.stage = stage
         self.details = details or {}
         self.http_status = http_status
+        self.retryable = is_retryable(code) if retryable is None else retryable
 
 
 class ProviderError(MoodVoiceError):

@@ -209,6 +209,11 @@ SQLite 表 `output_records` 保存：
 - `httpx`/`httpcore`/`aiohttp` 的 INFO 日志被关闭，避免把带 GroupId 等账户参数的
   完整厂商 URL 写进日志；
 - 错误信息只保留错误码、阶段、厂商名、状态码、request_id 和缺失项名称；
+- 错误响应体新增的 `retryable` 是对错误码的静态判断，不含任何请求数据；
+- `request_id` 是**上游厂商**的请求 ID（`x-request-id` 等响应头），不包含用户文本，
+  且经过 `sanitize_message` 限长 120；
+- `GET /api/v1/contract` 只暴露接口事实（标签集合、别名、错误码、上限、端点），
+  不含密钥、密钥配置、绑定地址或用户数据；
 - 日志 formatter 对已登记密钥、`sk-*`、Bearer、`api_key=` 等模式脱敏；
 - 校验错误响应会剔除 pydantic 的 `input` 字段，避免把原文复制到界面/日志；
 - 结构化记录中的 `error_message` 是面向用户的短消息，最多 240 字符。

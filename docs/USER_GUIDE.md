@@ -327,7 +327,12 @@ Demo 的情感下拉框已包含 12 个 canonical 标签和 3 个上游兼容标
 - `confusion`（困惑）→ 受挫
 - `gratitude`（感激）→ 开心
 
-API 可直接传 OmniNexus 的 9 类原值，无需组装层先做映射。
+**口径**：规范集是这 12 类；上游的 9 类标签（含上面 3 个）都通过**显式别名**精确命中，
+不是"兜底"。9 类以外的值（如 `disgust`）会回退到 `neutral`，并在输出里标
+`mapping_hit=false`，同时计入 `/api/health.emotion_mapping.fallbacks`。
+
+API 可直接传 OmniNexus 的 9 类原值，无需组装层先做映射。机器可读的完整清单在
+`GET /api/v1/contract`（见 [CONTRACT.md](CONTRACT.md)），消费方不必再读文档猜。
 
 ### 6.1 切换
 
@@ -419,6 +424,7 @@ moodvoice cache clear --records
 | 浏览器无法流式播放 | 浏览器不支持该 MIME 的 MSE | 会自动退化为整段播放；仍可下载音频；首响指标在服务端有效 |
 | 端口被占用 | 8765 已被其他程序使用 | `moodvoice serve --port 8787`，同时访问新地址 |
 | 想从局域网访问 | 默认只监听 127.0.0.1 | 自行加反向代理鉴权；设置 `EMOTION_TTS_HOST=0.0.0.0`、端口和 `EMOTION_TTS_ALLOWED_ORIGINS`；**不要裸奔到公网** |
+| 消费方问“支持哪些情绪/错误码” | 不想读文档 | 直接 `GET /api/v1/contract`；响应头 `X-MoodVoice-Contract-Version` 可低成本探测漂移 |
 
 ### 端口/地址覆盖
 

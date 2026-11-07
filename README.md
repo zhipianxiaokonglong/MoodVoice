@@ -1,4 +1,4 @@
-﻿# MoodVoice · 情感语音输出层
+# MoodVoice · 情感语音输出层
 
 一个可独立运行的 **标签驱动情感 TTS 输出层**。它接收上游 LLM 已打标的结果，把
 `emotion / type / intent` 分别消费为 **语音风格、文本渲染方式、下游路由**，输出
@@ -141,6 +141,25 @@ flowchart LR
 - 失败时 `audio_ref=null`、`status=text_fallback`、`degraded=true`，并在
   `degradation`/`diagnostics` 中说明原因。
 
+### 机器可读契约
+
+消费方不需要读文档猜接口：
+
+```powershell
+curl http://127.0.0.1:8765/api/v1/contract
+```
+
+返回 `contract_version` / `contract_hash` / 12 类情绪 + 全部别名 / 类型与意图 / 输出字段 /
+错误码及其 `retryable` / 上限 / 已注册端点。所有响应头带
+`X-MoodVoice-Contract-Version`，`/api/health` 带 `contract_version` 与 `contract_hash`。
+错误体统一为：
+
+```json
+{"error": {"code": "timeout", "message": "…", "retryable": true, "request_id": "…"}}
+```
+
+详见 [docs/CONTRACT.md](docs/CONTRACT.md)。
+
 ## 情感映射（摘录）
 
 完整配置见 [`config/emotion_styles.yaml`](config/emotion_styles.yaml)。
@@ -236,12 +255,13 @@ $env:MOODVOICE_LIVE_TESTS="1"
 python -m pytest -q -m live -s
 ```
 
-最近一次结果（2026-11-04，Windows / Python 3.12.14）：
+最近一次结果（2026-11-07，Windows / Python 3.12.14）：
 
-- `92 passed, 1 skipped`（跳过 live，5.56 s）
+- `107 passed, 1 skipped`（跳过 live，7.60 s）
 - live 测试：`1 passed`，真实 edge-tts 首响稳定样本 0.77–1.31 s（网络抖动时可达数秒，仍在超时阈值内）
 - 浏览器端：流式 MSE 播放、9 类上游标签、意图路由、纯文本降级、隐私去向、移动端均通过，无控制台错误
 - 浏览器端（API 接入）：探索 → 试听 → 保存 → REST/WS 生成 → 再次试听 → 删除全流程 40 项断言通过
+- 接口契约：`test_contract.py` 15 项——契约与配置/路由/错误码/端点一致、哈希稳定、`retryable` 语义
 - 多厂商切换、显式降级、纯文本降级、流中断清理、日志脱敏、缓存路径穿越、
   API/WS 契约、API 连接探测与密钥不落明文均有测试覆盖
 
@@ -271,6 +291,7 @@ python -m pytest -q -m live -s
 config/                 # 主配置、情感映射、意图路由
 src/emotional_tts/
   api.py                # REST + WebSocket + 同源/CSP 防护
+  contract.py           # 机器可读契约（版本/哈希/标签/错误码/端点）
   pipeline.py           # 标签消费 -> 合成 -> 降级 -> 记录
   styles.py             # 情感别名与厂商参数解析
   rendering.py          # type -> 渲染块 + 朗读稿
@@ -288,6 +309,7 @@ docs/                   # 用户/开发/隐私/厂商/根因/测试报告
 
 - [用户文档（BYOK 与 Demo）](docs/USER_GUIDE.md)
 - [开发文档（标签消费、风格映射、扩展厂商）](docs/DEVELOPER_GUIDE.md)
+- [接口契约（版本、标签口径、错误码）](docs/CONTRACT.md)
 - [厂商接入说明](docs/PROVIDERS.md)
 - [隐私与安全](docs/PRIVACY.md)
 - [情感风格根因排查手册](docs/ROOT_CAUSE_PLAYBOOK.md)
