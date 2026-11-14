@@ -15,7 +15,7 @@ server:
   port: 8765
 
 tts:
-  # auto | edge | openai | elevenlabs | azure | minimax | local
+  # auto | edge | openai | elevenlabs | azure | minimax | deepseek | local
   provider: "auto"
   # Explicit opt-in fallback chain. Empty means: provider failure -> plain text.
   # Cross-provider fallback sends the same text to these providers; list only
@@ -29,6 +29,7 @@ tts:
     - "openai"
     - "elevenlabs"
     - "minimax"
+    - "deepseek"
     - "local"
     - "edge"
   cache:
@@ -76,6 +77,13 @@ providers:
     group_id: ""
     # "Chinese" / "English" / "auto" — MiniMax language_boost.
     language_boost: "Chinese"
+
+  deepseek:
+    enabled: true
+    # DeepSeek 工具 API（2026-11 起提供 ASR/TTS）；密钥为 DEEPSEEK_API_KEY。
+    base_url: "https://api.deepseek.com"
+    voice_id: "stella"          # stella（女声）| tide（男声）
+    format: "wav"
 
   local:
     enabled: true

@@ -8,6 +8,7 @@ flattened. This is presentation logic, not content classification.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -27,10 +28,16 @@ TYPE_ALIASES = {
     "bullets": "list",
     "ul": "list",
     "ol": "list",
+    "table": "table",
+    "grid": "table",
+    "json": "json",
+    "mixed": "mixed",
     "文本": "text",
     "纯文本": "text",
     "代码": "code",
     "列表": "list",
+    "表格": "table",
+    "混合": "mixed",
 }
 
 _CODE_FENCE = re.compile(r"```(?P<lang>[A-Za-z0-9_+.-]*)[ \t]*\n?(?P<body>.*?)```", re.DOTALL)
@@ -68,6 +75,12 @@ def shape_content(
         result = _shape_list(content)
     elif normalized == "markdown":
         result = _shape_markdown(content)
+    elif normalized == "table":
+        result = _shape_table(content)
+    elif normalized == "json":
+        result = _shape_json(content)
+    elif normalized == "mixed":
+        result = _shape_mixed(content)
     else:
         result = RenderResult(
             render=RenderPayload(
@@ -234,6 +247,81 @@ def _shape_markdown(content: str) -> RenderResult:
             copyable=False,
         ),
         speech_text=speech,
+    )
+
+
+def _shape_table(content: str) -> RenderResult:
+    """Preserve table semantics while reading cells as prose.
+
+    The upstream contract (OmniNexus ``ContentType``) can emit ``table``.
+    Returning ``text`` here would silently erase the table type for the UI,
+    so the render payload keeps ``type="table"`` and gives each row a block.
+    """
+
+    blocks: list[RenderBlock] = []
+    spoken_rows: list[str] = []
+
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        # Drop Markdown table separator rows such as |---|:---:|
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if cells and all(re.fullmatch(r":?-{2,}:?", cell) for cell in cells if cell):
+            continue
+        spoken = "，".join(cell for cell in cells if cell)
+        if not spoken:
+            continue
+        blocks.append(RenderBlock(kind="table_row", content=spoken))
+        spoken_rows.append(spoken)
+
+    if not blocks:
+        blocks = [RenderBlock(kind="table_row", content=_flatten_for_speech(content))]
+
+    speech = "；".join(row.rstrip("。；;，, ") for row in spoken_rows if row)
+    if speech:
+        speech += "。"
+
+    return RenderResult(
+        render=RenderPayload(type="table", mode="table", blocks=blocks, copyable=True),
+        speech_text=speech or "表格已经显示在屏幕上。",
+    )
+
+
+def _shape_json(content: str) -> RenderResult:
+    """Keep JSON as JSON; never read braces and quotes aloud."""
+
+    try:
+        json.loads(content)
+        valid = True
+    except (TypeError, ValueError):
+        valid = False
+
+    speech = "JSON 内容已经显示在屏幕上。" if valid else _flatten_for_speech(content)
+    return RenderResult(
+        render=RenderPayload(
+            type="json",
+            mode="json",
+            blocks=[RenderBlock(kind="json", content=content.rstrip())],
+            copyable=True,
+        ),
+        speech_text=speech,
+    )
+
+
+def _shape_mixed(content: str) -> RenderResult:
+    """Mixed content keeps prose/code shaping but is not re-labeled as Markdown."""
+
+    shaped = _shape_markdown(content)
+    return RenderResult(
+        render=RenderPayload(
+            type="mixed",
+            mode="mixed",
+            language=shaped.render.language,
+            blocks=shaped.render.blocks,
+            copyable=shaped.render.copyable,
+        ),
+        speech_text=shaped.speech_text,
     )
 
 

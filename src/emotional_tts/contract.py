@@ -25,7 +25,7 @@ from .errors import RETRYABLE_CODES
 from .rendering import TYPE_ALIASES
 from .styles import normalize_tag
 
-CONTRACT_VERSION = "1.1.0"
+CONTRACT_VERSION = "1.2.0"
 
 #: Verified upstream tag sets this layer accepts. Only add a set once its
 #: membership is confirmed against the other repository, not by guessing.
@@ -41,6 +41,20 @@ ACCEPTED_UPSTREAM_SETS: dict[str, list[str]] = {
         "gratitude",
         "neutral",
     ],
+    "omninexus_v2": [
+        "neutral",
+        "joy",
+        "excitement",
+        "comfort",
+        "tenderness",
+        "calm",
+        "sadness",
+        "apology",
+        "encouragement",
+        "surprise",
+        "frustration",
+        "anger",
+    ],
 }
 
 OUTPUT_STATUS_VALUES = ("synthesized", "text_fallback", "text_only", "preparing")
@@ -51,7 +65,7 @@ OUTPUT_HEADERS = (
     "X-MoodVoice-Contract-Version",
 )
 
-_CANONICAL_TYPES = ("text", "code", "list", "markdown")
+_CANONICAL_TYPES = ("text", "code", "list", "markdown", "table", "json", "mixed")
 
 
 def describe_endpoints(app: Any) -> dict[str, list[str]]:

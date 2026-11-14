@@ -14,6 +14,7 @@ MoodVoice 只提供**适配层**，不内置任何密钥、账户、试用额度
 | `elevenlabs` | ElevenLabs | ✅ | `stability/style/speed` 风格强度 | 是 | ElevenLabs API |
 | `azure` | Azure Neural TTS | ✅ | `mstts:express-as` 原生风格 + 强度 | 是 | Azure AI Speech |
 | `minimax` | MiniMax 海螺语音 | ❌ 同步 | `voice_setting.emotion` 枚举 | 是 | MiniMax API |
+| `deepseek` | DeepSeek TTS | ✅ | 仅音色（`stella` / `tide`） | 是 | DeepSeek 工具 API |
 | `local` | 本地 TTS（HTTP） | ✅ | 自定义 `style` 载荷 | 可选 | 用户指定的本地服务 |
 
 ### 如何选择
@@ -98,6 +99,15 @@ MoodVoice 只提供**适配层**，不内置任何密钥、账户、试用额度
 - `emotion` 枚举有限（happy/sad/angry/fearful/disgusted/surprised/calm 等），
   `neutral` 会省略让模型自行判断；
 - 中国大陆/国际站端点不同，按账户配置 `MINIMAX_BASE_URL`。
+
+### DeepSeek
+
+- 官方工具 API：`POST https://api.deepseek.com/v1/tools/tts`，JSON 请求体，
+  音频在响应体中流式返回；本适配器固定请求 `format=wav`。
+- 只有 `stella`（女声）与 `tide`（男声）两个音色；**没有**语速或情感风格参数。
+  本层仍会把 `style.emotion` 透传给 UI，但不会假装改变了厂商韵律。
+- 密钥为 `DEEPSEEK_API_KEY`；ASR 与 TTS 共用同一把 key。
+- 单次最多 10,000 计费字符（汉字算 2 个），文本超过时按 `max_tts_chars` 截断。
 
 ### local
 

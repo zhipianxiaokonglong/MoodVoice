@@ -56,6 +56,31 @@ def test_markdown_flattens_links_and_keeps_prose():
     assert "代码已经显示" in result.speech_text
 
 
+def test_table_keeps_type_and_reads_cells_as_prose():
+    result = shape_content("| 名称 | 状态 |\n|---|---|\n| 输入 | 正常 |", "table")
+    assert result.render.type == "table"
+    assert result.render.mode == "table"
+    assert len(result.render.blocks) == 2
+    assert "名称，状态" in result.speech_text
+    assert "|" not in result.speech_text
+    assert "---" not in result.speech_text
+
+
+def test_json_keeps_type_and_is_not_read_symbol_by_symbol():
+    result = shape_content('{"name": "Dounai", "ok": true}', "json")
+    assert result.render.type == "json"
+    assert result.render.mode == "json"
+    assert "{" not in result.speech_text
+    assert "JSON" in result.speech_text
+
+
+def test_mixed_keeps_type_and_shapes_code():
+    result = shape_content("说明如下。\n\n```python\nprint(1)\n```", "mixed")
+    assert result.render.type == "mixed"
+    assert "说明如下" in result.speech_text
+    assert "print(1)" not in result.speech_text
+
+
 def test_unknown_type_falls_back_to_plain_text():
     result = shape_content("hello", "audio-waveform")
     assert result.render.type == "text"

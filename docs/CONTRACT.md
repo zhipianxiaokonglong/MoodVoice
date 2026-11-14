@@ -8,7 +8,7 @@ GET /api/v1/contract
 
 同一份版本号也出现在：
 
-- 每个响应头：`X-MoodVoice-Contract-Version: 1.1.0`
+- 每个响应头：`X-MoodVoice-Contract-Version: 1.2.0`
 - `GET /api/health`：`contract_version`、`contract_hash`、`contract_url`
 
 ---
@@ -17,7 +17,7 @@ GET /api/v1/contract
 
 | 字段 | 含义 |
 |---|---|
-| `contract_version` | **接口契约**的语义版本，当前 `1.1.0` |
+| `contract_version` | **接口契约**的语义版本，当前 `1.2.0` |
 | `schema_version` | 单条输出事件的 schema 版本，当前 `1.0`（四字段契约） |
 | `module_version` | 程序发布版本（`config/app.yaml → app.version`） |
 | `contract_hash` | 契约内容的 sha256 指纹 |
@@ -37,7 +37,7 @@ GET /api/v1/contract
 
 ```json
 {
-  "contract_version": "1.1.0",
+  "contract_version": "1.2.0",
   "module_version": "1.0.0",
   "contract_hash": "sha256:…",
   "tags": {
@@ -51,7 +51,7 @@ GET /api/v1/contract
       "accepted_upstream_sets": {"omninexus_v1": ["joy", "sadness", "anger", "fear",
                                 "surprise", "confusion", "frustration", "gratitude", "neutral"]}
     },
-    "type": {"canonical": ["text", "code", "list", "markdown"], "coerce_to": "text",
+    "type": {"canonical": ["text", "code", "list", "markdown", "table", "json", "mixed"], "coerce_to": "text",
              "unknown_policy": "coerce_to_default", "aliases": {"…": "…"}},
     "intent": {"canonical": ["linkage", "reply", "tool"],
                "unknown_policy": "route_to_unknown_destination",

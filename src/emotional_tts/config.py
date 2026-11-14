@@ -20,8 +20,8 @@ from .errors import ConfigError
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "app.yaml"
 
-KNOWN_PROVIDERS = ("edge", "openai", "elevenlabs", "azure", "minimax", "local")
-PROVIDER_ORDER = ("azure", "openai", "elevenlabs", "minimax", "local", "edge")
+KNOWN_PROVIDERS = ("edge", "openai", "elevenlabs", "azure", "minimax", "deepseek", "local")
+PROVIDER_ORDER = ("azure", "openai", "elevenlabs", "minimax", "deepseek", "local", "edge")
 
 
 class AppMeta(BaseModel):
@@ -144,6 +144,7 @@ class Secrets:
         "elevenlabs_api_key",
         "azure_speech_key",
         "minimax_api_key",
+        "deepseek_api_key",
         "local_tts_api_key",
     )
 
@@ -154,12 +155,14 @@ class Secrets:
         elevenlabs_api_key: str | None = None,
         azure_speech_key: str | None = None,
         minimax_api_key: str | None = None,
+        deepseek_api_key: str | None = None,
         local_tts_api_key: str | None = None,
     ) -> None:
         self.openai_api_key = _clean_secret(openai_api_key)
         self.elevenlabs_api_key = _clean_secret(elevenlabs_api_key)
         self.azure_speech_key = _clean_secret(azure_speech_key)
         self.minimax_api_key = _clean_secret(minimax_api_key)
+        self.deepseek_api_key = _clean_secret(deepseek_api_key)
         self.local_tts_api_key = _clean_secret(local_tts_api_key)
 
     @classmethod
@@ -169,6 +172,7 @@ class Secrets:
             elevenlabs_api_key=os.getenv("ELEVENLABS_API_KEY"),
             azure_speech_key=os.getenv("AZURE_SPEECH_KEY"),
             minimax_api_key=os.getenv("MINIMAX_API_KEY"),
+            deepseek_api_key=os.getenv("DEEPSEEK_API_KEY"),
             local_tts_api_key=os.getenv("LOCAL_TTS_API_KEY"),
         )
 
@@ -180,6 +184,7 @@ class Secrets:
                 self.elevenlabs_api_key,
                 self.azure_speech_key,
                 self.minimax_api_key,
+                self.deepseek_api_key,
                 self.local_tts_api_key,
             )
             if value
@@ -278,6 +283,10 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
         _ensure_provider(config, "minimax").base_url = os.environ["MINIMAX_BASE_URL"].strip()
     if os.getenv("MINIMAX_GROUP_ID"):
         _ensure_provider(config, "minimax").group_id = os.environ["MINIMAX_GROUP_ID"].strip()
+    if os.getenv("DEEPSEEK_BASE_URL"):
+        _ensure_provider(config, "deepseek").base_url = os.environ["DEEPSEEK_BASE_URL"].strip()
+    if os.getenv("DEEPSEEK_VOICE_ID"):
+        _ensure_provider(config, "deepseek").voice_id = os.environ["DEEPSEEK_VOICE_ID"].strip()
     if os.getenv("LOCAL_TTS_URL"):
         _ensure_provider(config, "local").base_url = os.environ["LOCAL_TTS_URL"].strip()
 

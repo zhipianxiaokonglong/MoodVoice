@@ -657,6 +657,12 @@ def _allowed_origins(config: AppConfig) -> set[str]:
     origins = {
         f"http://127.0.0.1:{port}",
         f"http://localhost:{port}",
+        # Tauri 2 WebView 的页面 Origin。桌面端 <audio> 直接请求 8103 时
+        # 会带上这些 Origin；不加白名单会被 Origin guard 403，表现为
+        # “TTS 已合成但没有声音”。
+        "http://tauri.localhost",
+        "https://tauri.localhost",
+        "tauri://localhost",
     }
     extra = os.getenv("EMOTION_TTS_ALLOWED_ORIGINS", "")
     seen: set[str] = set()

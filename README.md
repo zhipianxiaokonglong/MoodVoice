@@ -41,6 +41,8 @@ python -m emotional_tts demo "今天辛苦了，先慢慢呼吸一下。" --emot
 | `tags.emotion = comfort` | 从 12 类情感映射表选出语速、音高、音色和厂商风格 | `style.emotion=comfort, speed=0.92, tone=温柔低缓` |
 | `tags.type = code` | 原文本照常渲染；另生成不含代码符号的 `speech_text` | 屏幕上显示代码块，朗读“代码已经显示在屏幕上” |
 | `tags.type = list` | 去除列表符号，保留条目顺序 | UI 列表 + 连贯朗读 |
+| `tags.type = table` | 保留表格类型，单元格按行朗读 | `render.type=table`，不朗读 `|` 和分隔线 |
+| `tags.type = json` | 保留 JSON 类型，不逐符号朗读 | `render.type=json`，朗读“JSON 内容已经显示在屏幕上” |
 | `tags.intent = tool` | 只下发文本，不合成语音 | `route.destination=ui.tool_result` |
 | `tags.intent = linkage` | 路由到下游集成层，不朗读 | `route.destination=integration.linkage` |
 | 厂商超时/401/限流 | 按显式降级链尝试，最终返回纯文本 | `status=text_fallback, degraded=true` |
@@ -62,7 +64,7 @@ python -m emotional_tts demo "今天辛苦了，先慢慢呼吸一下。" --emot
 
 ```mermaid
 flowchart LR
-    U[上游 LLM 事件<br/>event_id / content / tags] --> R[类型渲染<br/>text / code / list / markdown]
+    U[上游 LLM 事件<br/>event_id / content / tags] --> R[类型渲染<br/>text / code / list / markdown / table / json / mixed]
     U --> E[情感标签解析<br/>alias -> canonical]
     U --> I[意图路由<br/>reply / tool / linkage]
     E --> S[情感风格映射<br/>config/emotion_styles.yaml]
@@ -188,6 +190,7 @@ curl http://127.0.0.1:8765/api/v1/contract
 | `openai` | `instructions` 自然语言表演指令 | ✅ | 需要 | `gpt-4o-mini-tts` |
 | `elevenlabs` | `stability / style / speed` 风格强度 | ✅ | 需要 | 需要 Voice ID |
 | `minimax` | `voice_setting.emotion` 枚举 | ❌ 同步 | 需要 | 首响高于流式厂商 |
+| `deepseek` | 仅 `stella` / `tide` 两音色 | ✅ | 需要 | DeepSeek 工具 API（`/v1/tools/tts`），WAV 输出 |
 | `local` | 自定义 `style` 载荷 | ✅ | 可选 | GPT-SoVITS/CosyVoice/F5-TTS 封装 |
 
 也评估并推荐了 Cartesia、火山引擎/豆包、阿里云、讯飞、腾讯云、Deepgram 等；其中
@@ -257,7 +260,7 @@ python -m pytest -q -m live -s
 
 最近一次结果（2026-11-07，Windows / Python 3.12.14）：
 
-- `107 passed, 1 skipped`（跳过 live，7.60 s）
+- `115 passed, 1 skipped`（跳过 live，7.83 s）
 - live 测试：`1 passed`，真实 edge-tts 首响稳定样本 0.77–1.31 s（网络抖动时可达数秒，仍在超时阈值内）
 - 浏览器端：流式 MSE 播放、9 类上游标签、意图路由、纯文本降级、隐私去向、移动端均通过，无控制台错误
 - 浏览器端（API 接入）：探索 → 试听 → 保存 → REST/WS 生成 → 再次试听 → 删除全流程 40 项断言通过

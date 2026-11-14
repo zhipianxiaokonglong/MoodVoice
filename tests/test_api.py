@@ -142,6 +142,20 @@ def test_origin_guard_and_cache_clearing(config, registry):
         assert client.get("/api/v1/records").json()["total"] == 0
 
 
+def test_tauri_origins_are_allowed_for_media(config, registry):
+    """The desktop <audio> request carries a Tauri origin; it must not 403."""
+
+    app = app_for(config, registry)
+    with TestClient(app) as client:
+        for origin in (
+            "http://tauri.localhost",
+            "https://tauri.localhost",
+            "tauri://localhost",
+        ):
+            response = client.get("/api/health", headers={"Origin": origin})
+            assert response.status_code == 200, origin
+
+
 def test_missing_session_id_is_derived_and_non_uuid_is_accepted(config, registry):
     app = app_for(config, registry)
     with TestClient(app) as client:

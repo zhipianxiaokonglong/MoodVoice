@@ -168,6 +168,8 @@ def test_contract_endpoint_and_header(config, registry):
         assert body["contract_hash"].startswith("sha256:")
         assert body["output"]["required_fields"] == ["event_id", "text", "audio_ref", "style"]
         assert body["output"]["schema_version"] == "1.0"
+        assert {"table", "json", "mixed"}.issubset(set(body["tags"]["type"]["canonical"]))
+        assert "omninexus_v2" in body["tags"]["emotion"]["accepted_upstream_sets"]
         assert body["errors"]["codes"]["timeout"]["retryable"] is True
         assert body["errors"]["codes"]["invalid_event"]["retryable"] is False
         assert body["limits"] == {

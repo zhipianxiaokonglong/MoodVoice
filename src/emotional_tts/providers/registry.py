@@ -7,6 +7,7 @@ from typing import Any
 from ..config import AppConfig, ProviderConfig, Secrets
 from .azure import AzureProvider
 from .base import TTSProvider
+from .deepseek import DeepSeekProvider
 from .edge import EdgeProvider
 from .elevenlabs import ElevenLabsProvider
 from .local_http import LocalHTTPProvider
@@ -89,6 +90,9 @@ def build_registry(config: AppConfig, secrets: Secrets) -> ProviderRegistry:
         ),
         "minimax": MiniMaxProvider(
             get("minimax"), api_key=secrets.minimax_api_key, timeout_seconds=timeout
+        ),
+        "deepseek": DeepSeekProvider(
+            get("deepseek"), api_key=secrets.deepseek_api_key, timeout_seconds=timeout
         ),
         "local": LocalHTTPProvider(
             get("local"),

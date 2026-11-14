@@ -1,10 +1,10 @@
 # 测试报告
 
-- 日期：2026-10-24（M-01~M-05 复验：2026-11-03；API 接入：2026-11-04；接口契约：2026-11-07）
+- 日期：2026-10-24（M-01~M-05 复验：2026-11-03；API 接入：2026-11-04；接口契约：2026-11-07；表格/JSON/混合类型：2026-11-14）
 - 环境：Windows 11 (10.0.26200)，Python 3.12.14
 - 依赖：FastAPI 0.162.0，Pydantic 2.14.1，httpx 0.28.1，edge-tts 7.3.1，pytest 8.4.2，keyring 25.x
-- 代码版本：v1.0.0 + 审计修复 + API 接入模式 + 接口契约 1.1.0
-- 结论：**通过**。107 个自动化测试通过，1 个依赖真实 edge-tts 的 live 测试通过；
+- 代码版本：v1.0.0 + 审计修复 + API 接入模式 + 接口契约 1.2.0
+- 结论：**通过**。115 个自动化测试通过，1 个依赖真实 edge-tts 的 live 测试通过；
   浏览器端覆盖流式、9 类标签、纯文本路由、纯文本降级、移动端，以及 API 连接面板的
   探索/试听/保存/切换/删除全流程，无控制台错误、无失败请求；机器可读契约与实现一致。
 
@@ -20,7 +20,7 @@ python -m pytest -q
 
 ```text
 .............................s.......................................     [100%]
-107 passed, 1 skipped, 1 warning in 7.60s
+115 passed, 1 skipped, 1 warning in 7.83s
 ```
 
 跳过项是 `tests/test_live_edge.py`（默认不访问外网）。warning 为 Starlette
@@ -35,7 +35,7 @@ python -m pytest -q -m live -s
 
 ```text
 .
-1 passed, 107 deselected, 1 warning (final verification: 1.45s)
+1 passed, 115 deselected, 1 warning (final verification: 1.49s)
 ```
 
 覆盖：真实网络、真实 MP3、音频文件 > 1 KB、端到端首响 < 15 s。
