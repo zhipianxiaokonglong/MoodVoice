@@ -42,13 +42,11 @@ class DeepSeekProvider(TTSProvider):
     ) -> None:
         super().__init__(config, timeout_seconds=timeout_seconds)
         self.api_key = api_key
-        self.base_url = (
-            getattr(config, "base_url", None) or "https://api.deepseek.com"
-        ).rstrip("/")
+        self.base_url = (getattr(config, "base_url", None) or "https://api.deepseek.com").rstrip(
+            "/"
+        )
         self.voice_id = (
-            getattr(config, "voice_id", None)
-            or getattr(config, "voice", None)
-            or "stella"
+            getattr(config, "voice_id", None) or getattr(config, "voice", None) or "stella"
         )
         self._client = httpx.AsyncClient(
             timeout=httpx.Timeout(timeout_seconds, connect=10.0),
