@@ -11,6 +11,36 @@ from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
+from ..speech import SpeechSegment
+
+
+@dataclass(frozen=True)
+class ProsodyCapabilities:
+    """What a vendor can actually do with speech prosody."""
+
+    explicit_rate: bool = False
+    explicit_pitch: bool = False
+    explicit_volume: bool = False
+    native_style: bool = False
+    instructions: bool = False
+    style_intensity: bool = False
+    ssml_breaks: bool = False
+    text_pause_sensitivity: str = "unknown"  # yes | no | unknown
+    supports_segment_synthesis: bool = False
+
+    def public(self) -> dict[str, Any]:
+        return {
+            "explicit_rate": self.explicit_rate,
+            "explicit_pitch": self.explicit_pitch,
+            "explicit_volume": self.explicit_volume,
+            "native_style": self.native_style,
+            "instructions": self.instructions,
+            "style_intensity": self.style_intensity,
+            "ssml_breaks": self.ssml_breaks,
+            "text_pause_sensitivity": self.text_pause_sensitivity,
+            "supports_segment_synthesis": self.supports_segment_synthesis,
+        }
+
 
 @dataclass(frozen=True)
 class ProviderCapabilities:
@@ -22,6 +52,7 @@ class ProviderCapabilities:
     external_egress: bool = True
     formats: tuple[str, ...] = ("mp3",)
     notes: str = ""
+    prosody: ProsodyCapabilities = field(default_factory=ProsodyCapabilities)
 
     def public(self) -> dict[str, Any]:
         return {
@@ -33,6 +64,7 @@ class ProviderCapabilities:
             "external_egress": self.external_egress,
             "formats": list(self.formats),
             "notes": self.notes,
+            "prosody": self.prosody.public(),
         }
 
 
@@ -46,6 +78,8 @@ class SynthesisRequest:
     voice: str | None
     style: Mapping[str, Any] = field(default_factory=dict)
     output_format: str = "mp3"
+    intensity: float = 0.5
+    segments: tuple[SpeechSegment, ...] = ()
 
     @property
     def text_chars(self) -> int:
@@ -116,11 +150,14 @@ class TTSProvider(ABC):
             "emotion": request.emotion,
             "speed": request.speed,
             "tone": request.tone,
+            "intensity": round(request.intensity, 3),
+            "segments": len(request.segments),
             "provider_params": dict(request.style),
             "effective": {
                 "voice": self.resolve_voice(request),
                 "emotion": request.emotion,
                 "speed": request.speed,
+                "intensity": round(request.intensity, 3),
                 "output_format": request.output_format,
             },
             "capabilities": self.capabilities.public(),

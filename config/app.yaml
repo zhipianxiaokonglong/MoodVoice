@@ -39,6 +39,23 @@ tts:
   styles_file: "config/emotion_styles.yaml"
   routes_file: "config/routes.yaml"
 
+  # Provider-neutral speech shaping. Providers decide how to realize it:
+  # Azure SSML breaks, Edge rate/pitch/volume, OpenAI instructions, DeepSeek
+  # plain text or optional segment splicing, local style payload.
+  speech:
+    preserve_paragraphs: true
+    sentence_pause_ms: 80
+    paragraph_pause_ms: 350
+    list_group_size: 3
+    min_segment_chars: 8
+    max_planned_segments: 6
+    # Off by default; enable only after real listening validation.
+    segmentation_enabled: false
+    segmentation_min_chars: 240
+    max_segments: 4
+    segment_pause_ms: 320
+    crossfade_ms: 30
+
 providers:
   # Free, keyless demo channel. edge-tts is an online Microsoft service:
   # text leaves this machine. For fully local speech, use providers.local.
@@ -84,6 +101,9 @@ providers:
     base_url: "https://api.deepseek.com"
     voice_id: "stella"          # stella（女声）| tide（男声）
     format: "wav"
+    # We already clean Markdown in rendering.py, so do not let the vendor
+    # collapse paragraph breaks a second time.
+    filter_markdown: false
 
   local:
     enabled: true

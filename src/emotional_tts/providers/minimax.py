@@ -14,7 +14,7 @@ from typing import Any, ClassVar
 import httpx
 
 from ..errors import ProviderError
-from .base import ProviderCapabilities, SynthesisRequest, TTSProvider
+from .base import ProsodyCapabilities, ProviderCapabilities, SynthesisRequest, TTSProvider
 from .http import network_error, upstream_error
 
 _ALLOWED_EMOTIONS = {
@@ -41,6 +41,12 @@ class MiniMaxProvider(TTSProvider):
         data_destination="MiniMax API（用户自己的账户）",
         formats=("mp3", "wav", "flac"),
         notes="同步接口一次性返回 hex 音频；首响高于流式厂商。",
+        prosody=ProsodyCapabilities(
+            explicit_rate=True,
+            explicit_pitch=True,
+            native_style=True,
+            text_pause_sensitivity="yes",
+        ),
     )
 
     def __init__(
@@ -93,11 +99,20 @@ class MiniMaxProvider(TTSProvider):
         return value
 
     def _payload(self, request: SynthesisRequest) -> dict[str, Any]:
+        delta = request.intensity - 0.5
         voice_setting: dict[str, Any] = {
             "voice_id": self.voice_id,
-            "speed": round(max(0.5, min(2.0, request.speed)), 3),
+            "speed": round(max(0.5, min(2.0, request.speed + delta * 0.1)), 3),
             "vol": 1.0,
-            "pitch": round(max(-12, min(12, float(request.style.get("pitch_semitones", 0))))),
+            "pitch": round(
+                max(
+                    -12,
+                    min(
+                        12,
+                        float(request.style.get("pitch_semitones", 0)) + delta * 2,
+                    ),
+                )
+            ),
         }
         emotion = self._emotion(request)
         if emotion:

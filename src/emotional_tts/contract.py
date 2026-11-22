@@ -25,7 +25,7 @@ from .errors import RETRYABLE_CODES
 from .rendering import TYPE_ALIASES
 from .styles import normalize_tag
 
-CONTRACT_VERSION = "1.2.0"
+CONTRACT_VERSION = "1.3.0"
 
 #: Verified upstream tag sets this layer accepts. Only add a set once its
 #: membership is confirmed against the other repository, not by guessing.
@@ -190,6 +190,12 @@ def build_contract(*, styles, router, config, app) -> dict[str, Any]:
             "emotion": _emotion_section(styles),
             "type": _type_section(),
             "intent": _intent_section(router),
+            "intensity": {
+                "optional": True,
+                "range": [0.0, 1.0],
+                "default": 0.5,
+                "notes": "Upstream hint; providers may ignore or map to prosody.",
+            },
         },
         "output": _output_section(),
         "errors": _errors_section(),

@@ -16,7 +16,7 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 
 from ..errors import ProviderError
-from .base import ProviderCapabilities, SynthesisRequest, TTSProvider
+from .base import ProsodyCapabilities, ProviderCapabilities, SynthesisRequest, TTSProvider
 from .http import network_error, request_id_of, upstream_error
 
 _ALLOWED_FORMATS = {"mp3", "wav", "ogg", "opus", "flac"}
@@ -47,6 +47,17 @@ class LocalHTTPProvider(TTSProvider):
         external_egress=False,
         formats=("wav", "mp3", "ogg", "opus", "flac"),
         notes="用于 GPT-SoVITS / CosyVoice / F5-TTS 的自定义封装。",
+        prosody=ProsodyCapabilities(
+            explicit_rate=True,
+            explicit_pitch=True,
+            explicit_volume=True,
+            native_style=True,
+            instructions=True,
+            style_intensity=True,
+            ssml_breaks=True,
+            text_pause_sensitivity="yes",
+            supports_segment_synthesis=True,
+        ),
     )
 
     def __init__(
@@ -113,7 +124,15 @@ class LocalHTTPProvider(TTSProvider):
                 "speed": round(request.speed, 3),
                 "pitch_semitones": round(float(request.style.get("pitch_semitones", 0)), 3),
                 "volume_db": round(float(request.style.get("volume_db", 0)), 3),
+                "intensity": round(request.intensity, 3),
             },
+            "segments": [
+                {
+                    "text": segment.text,
+                    "pause_after_ms": segment.pause_after_ms,
+                }
+                for segment in request.segments
+            ],
             "format": self.format,
         }
 

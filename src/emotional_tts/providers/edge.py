@@ -11,7 +11,7 @@ from edge_tts.exceptions import EdgeTTSException, NoAudioReceived
 
 from ..errors import ProviderError
 from ..security import sanitize_message
-from .base import ProviderCapabilities, SynthesisRequest, TTSProvider
+from .base import ProsodyCapabilities, ProviderCapabilities, SynthesisRequest, TTSProvider
 from .http import network_error
 
 _RATE_RE = re.compile(r"^[+-]\d{1,3}%$")
@@ -30,6 +30,12 @@ class EdgeProvider(TTSProvider):
         data_destination="微软 Edge 在线朗读服务（文本会离开本机）",
         formats=("mp3",),
         notes="无需账号，适合开箱即用 Demo；完全本地请使用 local 适配器。",
+        prosody=ProsodyCapabilities(
+            explicit_rate=True,
+            explicit_pitch=True,
+            explicit_volume=True,
+            text_pause_sensitivity="yes",
+        ),
     )
 
     def readiness(self) -> tuple[bool, list[str]]:
@@ -40,9 +46,13 @@ class EdgeProvider(TTSProvider):
     def _params(self, request: SynthesisRequest) -> dict[str, str]:
         style = request.style
         voice = request.voice or getattr(self.config, "voice", None) or "zh-CN-XiaoxiaoNeural"
-        rate = str(style.get("rate") or _percent((request.speed - 1.0) * 100))
-        pitch = str(style.get("pitch") or _hz(request.style.get("pitch_semitones", 0)))
-        volume = str(style.get("volume") or _percent(float(style.get("volume_db", 0)) * 3))
+        intensity_delta = (request.intensity - 0.5) * 2.0
+        rate_value = (request.speed - 1.0) * 100 + intensity_delta * 4
+        pitch_value = float(request.style.get("pitch_semitones", 0)) + intensity_delta
+        volume_value = float(request.style.get("volume_db", 0)) * 3 + intensity_delta * 2
+        rate = str(style.get("rate") or _percent(rate_value))
+        pitch = str(style.get("pitch") or _hz(pitch_value))
+        volume = str(style.get("volume") or _percent(volume_value))
         for label, value, pattern in (
             ("rate", rate, _RATE_RE),
             ("pitch", pitch, _PITCH_RE),

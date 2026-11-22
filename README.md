@@ -49,13 +49,14 @@ python -m emotional_tts demo "今天辛苦了，先慢慢呼吸一下。" --emot
 
 ## 功能一览
 
-- **6 个内置适配器**：`edge`、OpenAI TTS、ElevenLabs、Azure Neural TTS、MiniMax 海螺、本地 HTTP。
+- **7 个内置适配器**：`edge`、OpenAI TTS、ElevenLabs、Azure Neural TTS、MiniMax 海螺、DeepSeek TTS、本地 HTTP。
 - **页面内接入任意 TTS API**：填 Base URL + API Key 即可探索模型/音色、试听、保存；
   支持 OpenAI 兼容、Azure、ElevenLabs、MiniMax 四种协议，密钥进系统凭据库。
 - **统一流式接口**：厂商字节流边到边写入本地缓存；WebSocket 边合成边播放（MSE），首响优先。
 - **可配置情感映射**：`config/emotion_styles.yaml` 定义 12 类情感、133 个中英文别名、语速/音高/音量、厂商覆盖参数。
 - **意图路由**：`config/routes.yaml` 配置 `reply / tool / linkage` 的下游目的地与是否朗读。
 - **可插拔厂商**：实现 `TTSProvider` 的 `stream()` 即可接入；能力声明区分原生情感风格、指令、韵律和风格强度。
+- **统一语音计划**：`speech.py` 从朗读稿生成段落/句子/停顿计划；Azure 用 SSML break，Edge/OpenAI/ElevenLabs/MiniMax 用各自韵律参数，DeepSeek 用结构化文本或可选分段拼接，Local 收完整计划。
 - **纯文本降级**：失败不会产生半截音频；流中断会删除不完整文件并记录结构化结果。
 - **隐私优先**：BYOK、密钥只在服务端环境变量、日志脱敏、同源校验、仅监听本机、音频缓存可清除。
 - **结构化记录**：SQLite 保存情感标签、解析结果、厂商参数、延迟与降级原因，**不保存原文**，供后续版本复用。
@@ -138,7 +139,8 @@ flowchart LR
 ```
 
 - `text` 永远是上游原文，不改写。
-- `speech_text` 是实际朗读稿，代码/列表/Markdown 会做朗读安全清理。
+- `speech_text` 是实际朗读稿：保留段落边界，清理代码/列表/Markdown 的不可朗读符号；
+  同时生成 `diagnostics.speech.plan` 供各厂商适配器选择真实韵律实现。
 - `audio_ref` 是同源相对 URL；音频只落在本地 `.data/cache/`。
 - 失败时 `audio_ref=null`、`status=text_fallback`、`degraded=true`，并在
   `degradation`/`diagnostics` 中说明原因。
@@ -190,7 +192,7 @@ curl http://127.0.0.1:8765/api/v1/contract
 | `openai` | `instructions` 自然语言表演指令 | ✅ | 需要 | `gpt-4o-mini-tts` |
 | `elevenlabs` | `stability / style / speed` 风格强度 | ✅ | 需要 | 需要 Voice ID |
 | `minimax` | `voice_setting.emotion` 枚举 | ❌ 同步 | 需要 | 首响高于流式厂商 |
-| `deepseek` | 仅 `stella` / `tide` 两音色 | ✅ | 需要 | DeepSeek 工具 API（`/v1/tools/tts`），WAV 输出 |
+| `deepseek` | 仅 `stella` / `tide` 两音色；无语速/情感/SSML | ✅ | 需要 | WAV 输出；优先结构化文本，可选分段+静音拼接 |
 | `local` | 自定义 `style` 载荷 | ✅ | 可选 | GPT-SoVITS/CosyVoice/F5-TTS 封装 |
 
 也评估并推荐了 Cartesia、火山引擎/豆包、阿里云、讯飞、腾讯云、Deepgram 等；其中

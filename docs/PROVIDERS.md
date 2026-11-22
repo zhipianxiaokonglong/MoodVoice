@@ -106,13 +106,16 @@ MoodVoice 只提供**适配层**，不内置任何密钥、账户、试用额度
   音频在响应体中流式返回；本适配器固定请求 `format=wav`。
 - 只有 `stella`（女声）与 `tide`（男声）两个音色；**没有**语速或情感风格参数。
   本层仍会把 `style.emotion` 透传给 UI，但不会假装改变了厂商韵律。
+- 默认 `filter_markdown=false`：Markdown 已在本层清理，不能再让厂商折叠段落。
+- 优先使用结构化文本（保留段落/标点）；`tts.speech.segmentation_enabled=true` 时
+  可用同音色分段合成 + 静音拼接，对外仍只有一个 `audio_ref`。
 - 密钥为 `DEEPSEEK_API_KEY`；ASR 与 TTS 共用同一把 key。
 - 单次最多 10,000 计费字符（汉字算 2 个），文本超过时按 `max_tts_chars` 截断。
 
 ### local
 
 - 音频质量/情感表达由本地模型决定；
-- MoodVoice 只透传文本、emotion、tone、speed、pitch、volume 和格式；
+- MoodVoice 只透传文本、emotion、tone、speed、pitch、volume、intensity、segments 和格式；
 - 需要用户自己保证服务只监听可信地址，不会把文本二次转发；
 - `privacy.external_egress` 按 URL 主机判断：`localhost/127.0.0.1/::1` 为本机，
   其他主机（包括局域网 IP）标为外发。

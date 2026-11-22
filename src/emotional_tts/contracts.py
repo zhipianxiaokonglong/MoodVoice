@@ -20,6 +20,9 @@ class InputTags(BaseModel):
     emotion: str = Field(default="neutral", max_length=64)
     type: str = Field(default="text", max_length=32)
     intent: str = Field(default="reply", max_length=32)
+    # Optional upstream hint. Providers that support prosody may use it; the
+    # rest keep their canonical emotion mapping. Additive field, not required.
+    intensity: float | None = Field(default=None, ge=0.0, le=1.0)
 
     @field_validator("emotion", "type", "intent", mode="before")
     @classmethod
@@ -76,6 +79,7 @@ class StylePayload(BaseModel):
     pitch_semitones: float = 0
     source_tag: str = ""
     mapping_hit: bool = True
+    intensity: float = Field(default=0.5, ge=0.0, le=1.0)
 
 
 class RenderBlock(BaseModel):

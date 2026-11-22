@@ -31,7 +31,8 @@ contract.py       机器可读契约（版本/哈希/标签/错误码/端点）
 contracts.py      输入/输出 Pydantic 模型
 pipeline.py       prepare -> 候选厂商 -> 流式合成 -> 降级 -> 记录
 styles.py         标签归一化、别名索引、厂商参数
-rendering.py      type -> RenderPayload + speech_text
+speech.py         段落/句子/停顿计划 + WAV 拼接
+rendering.py      type -> RenderPayload + speech_text + SpeechPlan
 routing.py        intent -> destination / synthesize
 providers/base.py TTSProvider / SynthesisRequest / capabilities
 providers/http.py 共享 HTTP 流式与错误映射
@@ -56,7 +57,7 @@ InputEvent(
   session_id: str = "",         # 可选；缺失时由 event_id 派生
   content: str,                 # 1..20000，pipeline 再检查 max_input_chars
   stream: bool = True,          # 上游流式标志；本层接收聚合后的完整文本
-  tags: InputTags(emotion, type, intent),
+  tags: InputTags(emotion, type, intent, intensity=None),
   provider: str | None = None,  # 可选扩展；也可用 ?provider= 覆盖
 )
 ```
@@ -75,7 +76,7 @@ token 流，应在接入层先聚合，不应让 TTS 层承担 LLM 流解析。
 - `event_id`
 - `text`：原文，逐字保持
 - `audio_ref`：同源相对 URL，或 `null`
-- `style`：`emotion/label/speed/tone/...`
+- `style`：`emotion/label/speed/tone/.../intensity`
 
 增量字段：
 
@@ -134,8 +135,8 @@ OmniNexus v1 标签兼容桥接（不新增 canonical 类型）：
 |---|---|---|---|
 | `text` / `plain` | text | plain | 原文直接朗读 |
 | `code` / `snippet` | code | code | 不朗读代码符号；朗读代码围栏外的说明；无说明时提示“代码已显示” |
-| `list` / `bullets` | list | list | 去掉 `-`/`*`/`1.` 等标记，条目以分号连接 |
-| `markdown` / `md` | markdown | markdown | 去标题/强调/链接/行内代码；代码块替换为提示语 |
+| `list` / `bullets` | list | list | 去掉 `-`/`*`/`1.` 等标记；按空行分组，组内用分号连接，组间保留段落停顿 |
+| `markdown` / `md` | markdown | markdown | 去标题/强调/链接/行内代码；列表标记清理；代码块替换为提示语；保留段落边界 |
 | 未知值 | text | plain | 按普通文本处理，并在 `diagnostics.speech.requested_type` 保留原值 |
 
 原则：**type 是上游声明，不做自动内容分类**。即使代码看起来像普通句子，只要标签是
@@ -150,6 +151,32 @@ OmniNexus v1 标签兼容桥接（不新增 canonical 类型）：
 
 `max_tts_chars` 超出时在句子边界截断，并注明“内容有点长，我先读到这里”。
 `diagnostics.speech.speech_truncated=true`。
+
+#### 4.2.1 语音计划与厂商韵律
+
+`rendering.shape_content()` 同时生成 `SpeechPlan`（`speech.py`）：
+
+- 先按空行分段落，再按 `。！？；` 分句；
+- 过短句子合并，避免碎片化；
+- 段尾/句尾产生 `pause_after_ms`；
+- `diagnostics.speech.plan` 记录段数、段落数、总停顿；
+- `SpeechPlan` 是内部对象，公共契约仍只给 `speech_text` + 一个 `audio_ref`。
+
+各厂商按 `ProviderCapabilities.prosody` 选择真实实现：
+
+| 厂商 | 实现 |
+|---|---|
+| Azure | 单请求 SSML：`mstts:express-as` + `styledegree` + `<break>` |
+| Edge | 单请求 `rate/pitch/volume`，intensity 做小幅偏移 |
+| OpenAI | 单请求 `instructions` + `speed`，intensity 进入指令 |
+| ElevenLabs | 单请求 `style/stability/speed`，intensity 调节风格强度 |
+| MiniMax | 单请求 `voice_setting.emotion` + speed/pitch |
+| DeepSeek | 结构化文本；可选同音色分段 + 静音拼接；无原生韵律参数 |
+| Local | 完整 `SpeechPlan`、intensity、segments 透传 |
+| 自定义连接 | 按其底层协议能力执行 |
+
+`config/app.yaml` 的 `tts.speech` 控制段落停顿、最小片段、分段开关、最大段数、
+段间静音和交叉淡化。分批合成默认关闭，需真实听测后再开。
 
 ### 4.3 意图
 

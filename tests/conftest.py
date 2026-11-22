@@ -74,12 +74,18 @@ def make_event(
     content_type: str = "text",
     intent: str = "reply",
     provider: str | None = None,
+    intensity: float | None = None,
 ) -> InputEvent:
     return InputEvent(
         event_id=uuid4(),
         session_id=uuid4(),
         content=content,
         stream=True,
-        tags=InputTags(emotion=emotion, type=content_type, intent=intent),
+        tags=InputTags(
+            emotion=emotion,
+            type=content_type,
+            intent=intent,
+            intensity=intensity,
+        ),
         provider=provider,
     )

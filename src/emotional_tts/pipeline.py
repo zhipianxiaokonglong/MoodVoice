@@ -61,6 +61,7 @@ class ProviderCandidate:
 class PreparedOutput:
     event: InputEvent
     emotion: ResolvedEmotion
+    intensity: float
     rendered: RenderResult
     route: Any  # RoutePayload
     requested_provider: str
@@ -112,9 +113,16 @@ class OutputPipeline:
             event.content,
             event.tags.type,
             max_speech_chars=self.config.app.max_tts_chars,
+            sentence_pause_ms=self.config.tts.speech.sentence_pause_ms,
+            paragraph_pause_ms=self.config.tts.speech.paragraph_pause_ms,
+            min_segment_chars=self.config.tts.speech.min_segment_chars,
+            max_segments=self.config.tts.speech.max_planned_segments,
         )
         route = self.router.route(event.tags.intent)
         emotion = self.styles.resolve(event.tags.emotion)
+        intensity = (
+            0.5 if event.tags.intensity is None else max(0.0, min(1.0, float(event.tags.intensity)))
+        )
 
         session_provided = bool(event.session_id)
         session_source = "provided" if session_provided else "derived"
@@ -144,7 +152,7 @@ class OutputPipeline:
         candidates = self._plan_candidates(requested)
 
         by_provider = {
-            name: self.styles.provider_params(emotion, provider.style_family)
+            name: self.styles.provider_params(emotion, provider.style_family, intensity=intensity)
             for name, provider in self.registry.providers.items()
         }
         diagnostics = DiagnosticsPayload(
@@ -156,6 +164,7 @@ class OutputPipeline:
                 "label": emotion.label,
                 "mapping_hit": emotion.mapping_hit,
                 "fallback_reason": emotion.fallback_reason,
+                "intensity": round(intensity, 3),
             },
             provider_params={
                 "canonical": {
@@ -164,12 +173,14 @@ class OutputPipeline:
                     "pitch_semitones": round(emotion.pitch_semitones, 3),
                     "volume_db": round(emotion.volume_db, 3),
                     "tone": emotion.tone,
+                    "intensity": round(intensity, 3),
                 },
                 "by_provider": by_provider,
             },
             provider_attempts=[],
             speech={
                 **rendered.meta,
+                "plan": rendered.plan.public(),
                 "intent_known": self.router.is_known(event.tags.intent),
             },
             session={
@@ -187,6 +198,7 @@ class OutputPipeline:
         return PreparedOutput(
             event=event,
             emotion=emotion,
+            intensity=intensity,
             rendered=rendered,
             route=route,
             requested_provider=requested,
@@ -313,7 +325,11 @@ class OutputPipeline:
                 continue
 
             try:
-                style_params = self.styles.provider_params(prepared.emotion, provider.style_family)
+                style_params = self.styles.provider_params(
+                    prepared.emotion,
+                    provider.style_family,
+                    intensity=prepared.intensity,
+                )
                 style_params = provider.decorate_style(style_params)
                 selected_params = style_params
                 fmt = normalize_audio_format(provider.audio_format)
@@ -326,6 +342,8 @@ class OutputPipeline:
                     voice=style_params.get("voice"),
                     style=style_params,
                     output_format=fmt,
+                    intensity=prepared.intensity,
+                    segments=tuple(prepared.rendered.plan.segments),
                 )
                 request_preview = provider.request_preview(request)
             except ProviderError as exc:
@@ -617,7 +635,10 @@ class OutputPipeline:
             audio_ref=self.cache.ref_for(audio.filename) if audio else None,
             audio_mime=audio.mime if audio else None,
             audio_format=audio.fmt if audio else None,
-            style=StylePayload(**prepared.emotion.public_style()),
+            style=StylePayload(
+                **prepared.emotion.public_style(),
+                intensity=round(prepared.intensity, 3),
+            ),
             render=prepared.rendered.render,
             route=route,
             provider=provider_name,

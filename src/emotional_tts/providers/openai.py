@@ -8,7 +8,7 @@ from typing import Any, ClassVar
 import httpx
 
 from ..errors import ProviderError
-from .base import ProviderCapabilities, SynthesisRequest, TTSProvider
+from .base import ProsodyCapabilities, ProviderCapabilities, SynthesisRequest, TTSProvider
 from .http import stream_audio
 
 
@@ -23,6 +23,11 @@ class OpenAIProvider(TTSProvider):
         data_destination="OpenAI API（用户自己的账户）",
         formats=("mp3", "wav", "opus", "aac", "flac", "pcm"),
         notes="情感风格通过 instructions 传达，不是离散 style 枚举。",
+        prosody=ProsodyCapabilities(
+            explicit_rate=True,
+            instructions=True,
+            text_pause_sensitivity="yes",
+        ),
     )
 
     def __init__(
@@ -66,20 +71,31 @@ class OpenAIProvider(TTSProvider):
         return str(request.voice or getattr(self.config, "voice", None) or "coral")
 
     def _payload(self, request: SynthesisRequest, voice: str) -> dict[str, Any]:
+        intensity_delta = (request.intensity - 0.5) * 2.0
         payload: dict[str, Any] = {
             "model": self.model,
             "input": request.text,
             "voice": voice,
             "response_format": getattr(self.config, "response_format", None)
             or request.output_format,
-            "speed": round(max(0.25, min(4.0, request.speed)), 3),
+            "speed": round(max(0.25, min(4.0, request.speed + intensity_delta * 0.06)), 3),
         }
         instructions = request.style.get("instructions")
         # tts-1/tts-1-hd do not accept instructions. Avoid sending a parameter
         # the selected model will reject.
         supports_instructions = not self.model.startswith("tts-1")
         if instructions and supports_instructions:
-            payload["instructions"] = str(instructions)
+            text = str(instructions)
+            if abs(request.intensity - 0.5) > 1e-6:
+                level = (
+                    "subtle"
+                    if request.intensity < 0.35
+                    else "strong"
+                    if request.intensity > 0.7
+                    else "moderate"
+                )
+                text = f"{text} Performance intensity: {level}."
+            payload["instructions"] = text
         return payload
 
     def request_preview(self, request: SynthesisRequest) -> dict[str, Any]:

@@ -145,13 +145,16 @@ class StyleBook:
             provider_overrides=definition.provider_overrides,
         )
 
-    def provider_params(self, emotion: ResolvedEmotion, provider: str) -> dict[str, Any]:
+    def provider_params(
+        self, emotion: ResolvedEmotion, provider: str, *, intensity: float = 0.5
+    ) -> dict[str, Any]:
         params = dict(emotion.provider_overrides.get(provider, {}))
         params.setdefault("emotion", emotion.key)
         params.setdefault("tone", emotion.tone)
         params.setdefault("speed", round(emotion.speed, 3))
         params.setdefault("pitch_semitones", round(emotion.pitch_semitones, 3))
         params.setdefault("volume_db", round(emotion.volume_db, 3))
+        params["intensity"] = round(max(0.0, min(1.0, float(intensity))), 3)
         return params
 
     def describe(self) -> dict[str, Any]:

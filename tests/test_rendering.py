@@ -12,6 +12,25 @@ def test_plain_text_is_preserved_and_used_for_speech():
     assert result.speech_text == content
 
 
+def test_paragraph_breaks_are_preserved_and_planned():
+    content = "第一段先停一下。\n\n第二段说原因。\n\n第三段给建议。"
+    result = shape_content(content, "text", paragraph_pause_ms=400)
+    assert result.render.type == "text"
+    assert result.speech_text.count("\n\n") == 2
+    assert result.plan.paragraphs == 3
+    assert len(result.plan.segments) >= 3
+    assert result.plan.pause_total_ms >= 800
+    assert result.meta["speech_paragraphs"] == 3
+
+
+def test_list_keeps_blank_line_groups():
+    result = shape_content("- 先呼吸\n- 再喝水\n\n- 最后休息", "list")
+    assert result.render.type == "list"
+    assert result.speech_text.count("\n\n") == 1
+    assert result.plan.paragraphs == 2
+    assert "先呼吸；再喝水" in result.speech_text
+
+
 def test_code_is_rendered_without_reading_symbols_aloud():
     content = """这里是说明。
 
@@ -54,6 +73,13 @@ def test_markdown_flattens_links_and_keeps_prose():
     assert "https://example.invalid" not in result.speech_text
     assert "重点是 慢慢来" in result.speech_text
     assert "代码已经显示" in result.speech_text
+
+
+def test_markdown_list_markers_are_not_spoken():
+    result = shape_content("- 先呼吸\n- 再喝水", "markdown")
+    assert "- " not in result.speech_text
+    assert "先呼吸" in result.speech_text
+    assert "再喝水" in result.speech_text
 
 
 def test_table_keeps_type_and_reads_cells_as_prose():

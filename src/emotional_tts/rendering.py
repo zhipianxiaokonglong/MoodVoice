@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .contracts import RenderBlock, RenderPayload
+from .speech import SpeechPlan, build_speech_plan
 
 TYPE_ALIASES = {
     "text": "text",
@@ -46,6 +47,7 @@ _MD_LINK = re.compile(r"\[([^\]]+)\]\([^)]+\)")
 _MD_HEADING = re.compile(r"^\s{0,3}#{1,6}\s+", re.MULTILINE)
 _MD_EMPHASIS = re.compile(r"(\*\*|__|\*|_|~~)")
 _MD_INLINE_CODE = re.compile(r"`([^`]+)`")
+_MD_LIST_LINE = re.compile(r"^\s{0,3}(?:[-*+]|\d{1,3}[.)、])\s+", re.MULTILINE)
 _SPEAKABLE = re.compile(r"[A-Za-z0-9\u4e00-\u9fff]")
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
@@ -60,6 +62,7 @@ class RenderResult:
     render: RenderPayload
     speech_text: str
     meta: dict[str, Any] = field(default_factory=dict)
+    plan: SpeechPlan = field(default_factory=SpeechPlan)
 
 
 def shape_content(
@@ -67,6 +70,10 @@ def shape_content(
     declared_type: str | None,
     *,
     max_speech_chars: int = 3000,
+    sentence_pause_ms: int = 80,
+    paragraph_pause_ms: int = 350,
+    min_segment_chars: int = 8,
+    max_segments: int = 0,
 ) -> RenderResult:
     normalized = normalize_type(declared_type)
     if normalized == "code":
@@ -101,13 +108,24 @@ def shape_content(
     if not speech:
         speech = "内容已经准备好，我放在屏幕上了。"
 
+    plan = build_speech_plan(
+        speech,
+        sentence_pause_ms=sentence_pause_ms,
+        paragraph_pause_ms=paragraph_pause_ms,
+        min_segment_chars=min_segment_chars,
+        max_segments=max_segments,
+    )
     result.speech_text = speech
+    result.plan = plan
     result.meta = {
         "requested_type": declared_type or "",
         "normalized_type": normalized,
         "speech_chars": len(speech),
         "source_chars": len(content),
         "speech_truncated": truncated,
+        "speech_segments": len(plan.segments),
+        "speech_paragraphs": plan.paragraphs,
+        "speech_pause_ms": plan.pause_total_ms,
         "code_blocks": sum(1 for block in result.render.blocks if block.kind == "code"),
         "list_items": sum(1 for block in result.render.blocks if block.kind == "list_item"),
     }
@@ -168,43 +186,39 @@ def _shape_code(content: str) -> RenderResult:
 
 def _shape_list(content: str) -> RenderResult:
     blocks: list[RenderBlock] = []
-    speech_parts: list[str] = []
+    paragraphs: list[str] = []
     ordinal = 0
-    has_marker = False
 
-    for raw_line in content.splitlines():
-        line = raw_line.strip()
-        if not line:
+    for group in re.split(r"\n\s*\n", content):
+        lines = [line.strip() for line in group.splitlines() if line.strip()]
+        if not lines:
             continue
-        match = re.match(r"^(?:[-*+•·]|\d+[.)、])\s+(.*)$", line)
-        if match:
-            has_marker = True
-            ordinal += 1
-            item = _flatten_for_speech(match.group(1))
-            blocks.append(RenderBlock(kind="list_item", content=item, ordinal=ordinal))
-            if item:
-                speech_parts.append(item)
+        marked = [re.match(r"^(?:[-*+•·]|\d+[.)、])\s+(.*)$", line) for line in lines]
+        parts: list[str] = []
+        if any(match is not None for match in marked):
+            for line, match in zip(lines, marked, strict=True):
+                if match is not None:
+                    item = _flatten_for_speech(match.group(1))
+                    if item:
+                        ordinal += 1
+                        blocks.append(RenderBlock(kind="list_item", content=item, ordinal=ordinal))
+                        parts.append(item)
+                else:
+                    prose = _flatten_for_speech(line)
+                    if prose:
+                        blocks.append(RenderBlock(kind="text", content=prose))
+                        parts.append(prose)
         else:
-            item = _flatten_for_speech(line)
-            blocks.append(RenderBlock(kind="text", content=item))
-            if item:
-                speech_parts.append(item)
+            for line in lines:
+                item = _flatten_for_speech(line)
+                if item:
+                    ordinal += 1
+                    blocks.append(RenderBlock(kind="list_item", content=item, ordinal=ordinal))
+                    parts.append(item)
+        if parts:
+            paragraphs.append("；".join(part.rstrip("。；;，, ") for part in parts) + "。")
 
-    if not has_marker:
-        # Tag declared a list but no marker was found: still render every
-        # non-empty line as an item, without silently re-classifying it.
-        blocks = []
-        for index, raw_line in enumerate(content.splitlines(), start=1):
-            line = raw_line.strip()
-            if not line:
-                continue
-            item = _flatten_for_speech(line)
-            blocks.append(RenderBlock(kind="list_item", content=item, ordinal=index))
-            speech_parts.append(item)
-
-    speech = "；".join(part.rstrip("。；;，, ") for part in speech_parts if part)
-    if speech:
-        speech += "。"
+    speech = "\n\n".join(paragraphs)
     return RenderResult(
         render=RenderPayload(type="list", mode="list", blocks=blocks, copyable=False),
         speech_text=speech,
@@ -326,7 +340,7 @@ def _shape_mixed(content: str) -> RenderResult:
 
 
 def _flatten_for_speech(text: str) -> str:
-    """Remove visual-only syntax while preserving words and punctuation."""
+    """Remove visual-only syntax while preserving paragraph boundaries."""
 
     text = _CONTROL.sub("", text)
     text = _CODE_FENCE.sub(" ", text)
@@ -337,15 +351,20 @@ def _flatten_for_speech(text: str) -> str:
     text = _MD_INLINE_CODE.sub(r"\1", text)
     text = re.sub(r"^\s{0,3}>\s?", "", text, flags=re.MULTILINE)
     text = re.sub(r"^\s*([-*_]\s*){3,}$", "", text, flags=re.MULTILINE)
+    text = _MD_LIST_LINE.sub("", text)
     text = re.sub(r"[ \t]+", " ", text)
-    text = re.sub(r"\n{2,}", "\n", text)
+    # Keep real paragraph breaks. Single newlines inside a paragraph are
+    # visual wrapping, not pauses.
+    text = re.sub(r"\n[ \t]*\n+", "\n\n", text)
+    text = re.sub(r"(?<!\n)\n(?!\n)", " ", text)
     return text.strip()
 
 
 def _clean_speech(text: str) -> str:
     text = _CONTROL.sub("", text)
     text = re.sub(r"[ \t]+", " ", text)
-    text = re.sub(r"\s*\n\s*", " ", text)
+    text = re.sub(r"\n[ \t]*\n+", "\n\n", text)
+    text = re.sub(r"(?<!\n)\n(?!\n)", " ", text)
     return text.strip()
 
 

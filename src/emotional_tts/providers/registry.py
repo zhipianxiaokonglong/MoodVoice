@@ -92,7 +92,10 @@ def build_registry(config: AppConfig, secrets: Secrets) -> ProviderRegistry:
             get("minimax"), api_key=secrets.minimax_api_key, timeout_seconds=timeout
         ),
         "deepseek": DeepSeekProvider(
-            get("deepseek"), api_key=secrets.deepseek_api_key, timeout_seconds=timeout
+            get("deepseek"),
+            api_key=secrets.deepseek_api_key,
+            timeout_seconds=timeout,
+            speech_settings=config.tts.speech,
         ),
         "local": LocalHTTPProvider(
             get("local"),

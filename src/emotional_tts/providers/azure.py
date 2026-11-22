@@ -10,7 +10,7 @@ from xml.sax.saxutils import escape, quoteattr
 import httpx
 
 from ..errors import ProviderError
-from .base import ProviderCapabilities, SynthesisRequest, TTSProvider
+from .base import ProsodyCapabilities, ProviderCapabilities, SynthesisRequest, TTSProvider
 from .http import stream_audio
 
 _STYLE_RE = re.compile(r"^[a-z][a-z0-9_-]{0,40}$")
@@ -31,6 +31,14 @@ class AzureProvider(TTSProvider):
         data_destination="Azure AI Speech（用户自己的订阅）",
         formats=("mp3", "wav", "ogg"),
         notes="情感表达最直接：style 枚举 + 强度 + prosody。",
+        prosody=ProsodyCapabilities(
+            explicit_rate=True,
+            explicit_pitch=True,
+            explicit_volume=True,
+            native_style=True,
+            ssml_breaks=True,
+            text_pause_sensitivity="yes",
+        ),
     )
 
     def __init__(
@@ -90,7 +98,10 @@ class AzureProvider(TTSProvider):
                 stage="style_resolution",
                 details={"parameter": "style", "value": azure_style[:40]},
             )
-        degree = _clamp(style.get("style_degree", 1.0), 0.01, 2.0)
+        base_degree = _clamp(style.get("style_degree", 1.0), 0.01, 2.0)
+        # 0.5 is neutral. Keep configured values exactly at the default so
+        # existing mappings and diagnostics do not move unless asked to.
+        degree = _clamp(base_degree * (0.85 + 0.3 * request.intensity), 0.01, 2.0)
         rate = str(style.get("rate") or _percent((request.speed - 1.0) * 100))
         pitch = str(style.get("pitch") or _percent(float(style.get("pitch_semitones", 0)) * 2))
         volume = str(style.get("volume") or _percent(float(style.get("volume_db", 0)) * 2))
@@ -119,6 +130,15 @@ class AzureProvider(TTSProvider):
 
     def _ssml(self, request: SynthesisRequest, effective: dict[str, Any]) -> str:
         voice = effective["voice"]
+        if request.segments:
+            body_parts: list[str] = []
+            for segment in request.segments:
+                body_parts.append(escape(segment.text))
+                if segment.pause_after_ms > 0:
+                    body_parts.append(f'<break time="{int(segment.pause_after_ms)}ms"/>')
+            body = "".join(body_parts)
+        else:
+            body = escape(request.text)
         return (
             '<speak version="1.0" '
             'xmlns="http://www.w3.org/2001/10/synthesis" '
@@ -130,7 +150,7 @@ class AzureProvider(TTSProvider):
             f"<prosody rate={quoteattr(str(effective['rate']))} "
             f"pitch={quoteattr(str(effective['pitch']))} "
             f"volume={quoteattr(str(effective['volume']))}>"
-            f"{escape(request.text)}"
+            f"{body}"
             "</prosody></mstts:express-as></voice></speak>"
         )
 

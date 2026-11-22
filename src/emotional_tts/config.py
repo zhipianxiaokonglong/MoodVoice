@@ -54,6 +54,24 @@ class CacheSettings(BaseModel):
     max_age_hours: int = Field(default=168, ge=1, le=24 * 365)
 
 
+class SpeechSettings(BaseModel):
+    """Provider-neutral speech shaping. No vendor names here."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    preserve_paragraphs: bool = True
+    sentence_pause_ms: int = Field(default=80, ge=0, le=2000)
+    paragraph_pause_ms: int = Field(default=350, ge=0, le=5000)
+    list_group_size: int = Field(default=3, ge=1, le=20)
+    min_segment_chars: int = Field(default=8, ge=1, le=200)
+    max_planned_segments: int = Field(default=6, ge=1, le=20)
+    segmentation_enabled: bool = False
+    segmentation_min_chars: int = Field(default=240, ge=0, le=10000)
+    max_segments: int = Field(default=4, ge=1, le=10)
+    segment_pause_ms: int = Field(default=320, ge=0, le=5000)
+    crossfade_ms: int = Field(default=30, ge=0, le=200)
+
+
 class TTSSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -63,6 +81,7 @@ class TTSSettings(BaseModel):
     total_timeout_seconds: float = Field(default=60.0, gt=0, le=300)
     auto_order: list[str] = Field(default_factory=lambda: list(PROVIDER_ORDER))
     cache: CacheSettings = Field(default_factory=CacheSettings)
+    speech: SpeechSettings = Field(default_factory=SpeechSettings)
     data_dir: str = ".data"
     styles_file: str = "config/emotion_styles.yaml"
     routes_file: str = "config/routes.yaml"
@@ -107,6 +126,7 @@ class ProviderConfig(BaseModel):
     group_id: str | None = None
     language_boost: str | None = None
     format: str | None = None
+    filter_markdown: bool = False
 
     def get(self, key: str, default: Any = None) -> Any:
         return getattr(self, key, default)

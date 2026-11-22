@@ -29,6 +29,7 @@ async def test_reply_synthesizes_and_records_structured_data(
     assert output.degraded is False
     assert output.provider == "fake_a"
     assert output.style.emotion == "comfort"
+    assert output.style.intensity == pytest.approx(0.5)
     assert output.audio_ref and output.audio_ref.startswith("/api/v1/audio/")
     assert output.audio_ref.endswith(".mp3")
     assert output.audio_mime == "audio/mpeg"
@@ -38,6 +39,7 @@ async def test_reply_synthesizes_and_records_structured_data(
     assert output.diagnostics.privacy["text_sent_to"][0]["provider"] == "fake_a"
     assert output.diagnostics.emotion_mapping["mapping_hit"] is True
     assert output.diagnostics.provider_params["selected"]["emotion"] == "comfort"
+    assert output.diagnostics.speech["plan"]["segments"] >= 1
 
     filename = output.audio_ref.rsplit("/", 1)[-1]
     assert cache.resolve(filename).read_bytes() == b"ID3fake-audio-1fake-audio-2"
@@ -46,6 +48,18 @@ async def test_reply_synthesizes_and_records_structured_data(
     assert stored[0]["speech_chars"] > 0
     assert "text" not in stored[0]
     assert "content" not in stored[0]
+
+
+async def test_intensity_reaches_style_and_provider_request(
+    config, styles, router, registry, cache
+):
+    pipeline = build_pipeline(config, styles, router, registry, cache)
+    output = await pipeline.process(make_event(intensity=0.9), provider_override="fake_a")
+    assert output.style.intensity == pytest.approx(0.9)
+    assert output.diagnostics.provider_params["canonical"]["intensity"] == pytest.approx(0.9)
+    request = registry.get("fake_a").requests[0]
+    assert request.intensity == pytest.approx(0.9)
+    assert request.style["intensity"] == pytest.approx(0.9)
 
 
 async def test_intent_tool_routes_text_only_without_calling_provider(

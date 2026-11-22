@@ -8,7 +8,7 @@ GET /api/v1/contract
 
 同一份版本号也出现在：
 
-- 每个响应头：`X-MoodVoice-Contract-Version: 1.2.0`
+- 每个响应头：`X-MoodVoice-Contract-Version: 1.3.0`
 - `GET /api/health`：`contract_version`、`contract_hash`、`contract_url`
 
 ---
@@ -17,7 +17,7 @@ GET /api/v1/contract
 
 | 字段 | 含义 |
 |---|---|
-| `contract_version` | **接口契约**的语义版本，当前 `1.2.0` |
+| `contract_version` | **接口契约**的语义版本，当前 `1.3.0` |
 | `schema_version` | 单条输出事件的 schema 版本，当前 `1.0`（四字段契约） |
 | `module_version` | 程序发布版本（`config/app.yaml → app.version`） |
 | `contract_hash` | 契约内容的 sha256 指纹 |
@@ -37,7 +37,7 @@ GET /api/v1/contract
 
 ```json
 {
-  "contract_version": "1.2.0",
+  "contract_version": "1.3.0",
   "module_version": "1.0.0",
   "contract_hash": "sha256:…",
   "tags": {
@@ -56,7 +56,8 @@ GET /api/v1/contract
     "intent": {"canonical": ["linkage", "reply", "tool"],
                "unknown_policy": "route_to_unknown_destination",
                "unknown_destination": "ui.text_reply",
-               "routes": {"reply": {"destination": "ui.voice_reply", "synthesize": true}, "…": {}}}
+               "routes": {"reply": {"destination": "ui.voice_reply", "synthesize": true}, "…": {}}},
+    "intensity": {"optional": true, "range": [0.0, 1.0], "default": 0.5}
   },
   "output": {
     "required_fields": ["event_id", "text", "audio_ref", "style"],

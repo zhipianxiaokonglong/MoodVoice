@@ -9,7 +9,7 @@ from typing import Any, ClassVar
 import httpx
 
 from ..errors import ProviderError
-from .base import ProviderCapabilities, SynthesisRequest, TTSProvider
+from .base import ProsodyCapabilities, ProviderCapabilities, SynthesisRequest, TTSProvider
 from .http import stream_audio
 
 _VOICE_RE = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
@@ -26,6 +26,11 @@ class ElevenLabsProvider(TTSProvider):
         data_destination="ElevenLabs API（用户自己的账户）",
         formats=("mp3",),
         notes="情绪不是枚举参数；映射表把标签转为 stability/style/speed 组合。",
+        prosody=ProsodyCapabilities(
+            explicit_rate=True,
+            style_intensity=True,
+            text_pause_sensitivity="yes",
+        ),
     )
 
     def __init__(
@@ -80,14 +85,15 @@ class ElevenLabsProvider(TTSProvider):
 
     def _voice_settings(self, request: SynthesisRequest) -> dict[str, Any]:
         style = request.style
+        delta = request.intensity - 0.5
         settings: dict[str, Any] = {
-            "stability": _clamp(style.get("stability", 0.5), 0.0, 1.0),
+            "stability": _clamp(style.get("stability", 0.5) - delta * 0.3, 0.0, 1.0),
             "similarity_boost": _clamp(style.get("similarity_boost", 0.8), 0.0, 1.0),
-            "style": _clamp(style.get("style", 0.35), 0.0, 1.0),
+            "style": _clamp(style.get("style", 0.35) + delta * 0.4, 0.0, 1.0),
             "use_speaker_boost": bool(style.get("use_speaker_boost", True)),
         }
         if getattr(self.config, "send_speed", True):
-            settings["speed"] = _clamp(request.speed, 0.7, 1.2)
+            settings["speed"] = _clamp(request.speed + delta * 0.1, 0.7, 1.2)
         return settings
 
     def request_preview(self, request: SynthesisRequest) -> dict[str, Any]:
