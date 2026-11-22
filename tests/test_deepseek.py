@@ -124,6 +124,7 @@ async def test_deepseek_segments_insert_silence_and_return_one_wav():
         segmentation_enabled=True,
         segmentation_min_chars=0,
         max_segments=4,
+        segment_concurrency=1,
         segment_pause_ms=320,
         crossfade_ms=0,
     )
@@ -171,6 +172,7 @@ async def test_deepseek_segment_failure_falls_back_to_full_text():
         segmentation_enabled=True,
         segmentation_min_chars=0,
         max_segments=4,
+        segment_concurrency=1,
         segment_pause_ms=320,
         crossfade_ms=0,
     )

@@ -74,20 +74,22 @@ def shape_content(
     paragraph_pause_ms: int = 350,
     min_segment_chars: int = 8,
     max_segments: int = 0,
+    preserve_paragraphs: bool = True,
+    list_group_size: int = 3,
 ) -> RenderResult:
     normalized = normalize_type(declared_type)
     if normalized == "code":
         result = _shape_code(content)
     elif normalized == "list":
-        result = _shape_list(content)
+        result = _shape_list(content, group_size=list_group_size)
     elif normalized == "markdown":
-        result = _shape_markdown(content)
+        result = _shape_markdown(content, group_size=list_group_size)
     elif normalized == "table":
         result = _shape_table(content)
     elif normalized == "json":
         result = _shape_json(content)
     elif normalized == "mixed":
-        result = _shape_mixed(content)
+        result = _shape_mixed(content, group_size=list_group_size)
     else:
         result = RenderResult(
             render=RenderPayload(
@@ -100,6 +102,8 @@ def shape_content(
         )
 
     speech = _clean_speech(result.speech_text)
+    if not preserve_paragraphs:
+        speech = re.sub(r"\s*\n\s*", " ", speech).strip()
     truncated = False
     if len(speech) > max_speech_chars:
         speech = _truncate_speech(speech, max_speech_chars)
@@ -184,7 +188,7 @@ def _shape_code(content: str) -> RenderResult:
     )
 
 
-def _shape_list(content: str) -> RenderResult:
+def _shape_list(content: str, *, group_size: int = 3) -> RenderResult:
     blocks: list[RenderBlock] = []
     paragraphs: list[str] = []
     ordinal = 0
@@ -215,8 +219,10 @@ def _shape_list(content: str) -> RenderResult:
                     ordinal += 1
                     blocks.append(RenderBlock(kind="list_item", content=item, ordinal=ordinal))
                     parts.append(item)
-        if parts:
-            paragraphs.append("；".join(part.rstrip("。；;，, ") for part in parts) + "。")
+        size = max(1, group_size)
+        for index in range(0, len(parts), size):
+            chunk = parts[index : index + size]
+            paragraphs.append("；".join(part.rstrip("。；;，, ") for part in chunk) + "。")
 
     speech = "\n\n".join(paragraphs)
     return RenderResult(
@@ -225,7 +231,7 @@ def _shape_list(content: str) -> RenderResult:
     )
 
 
-def _shape_markdown(content: str) -> RenderResult:
+def _shape_markdown(content: str, *, group_size: int = 3) -> RenderResult:
     blocks: list[RenderBlock] = []
     prose_parts: list[str] = []
     cursor = 0
@@ -233,9 +239,9 @@ def _shape_markdown(content: str) -> RenderResult:
 
     for match in _CODE_FENCE.finditer(content):
         before = content[cursor : match.start()]
-        prose_parts.append(before)
-        prose = _flatten_for_speech(before)
+        prose = _markdown_prose_speech(before, group_size=group_size)
         if prose:
+            prose_parts.append(prose)
             blocks.append(RenderBlock(kind="text", content=prose))
         language = match.group("lang") or None
         body = match.group("body").rstrip("\n")
@@ -244,14 +250,14 @@ def _shape_markdown(content: str) -> RenderResult:
         cursor = match.end()
 
     tail = content[cursor:]
-    prose_parts.append(tail)
-    tail_speech = _flatten_for_speech(tail)
+    tail_speech = _markdown_prose_speech(tail, group_size=group_size)
     if tail_speech:
+        prose_parts.append(tail_speech)
         blocks.append(RenderBlock(kind="text", content=tail_speech))
 
-    speech = _flatten_for_speech("\n".join(prose_parts))
+    speech = "\n\n".join(part for part in prose_parts if part)
     if has_code:
-        speech = f"{speech} 代码已经显示在屏幕上。".strip()
+        speech = f"{speech}\n\n代码已经显示在屏幕上。".strip()
 
     return RenderResult(
         render=RenderPayload(
@@ -323,10 +329,10 @@ def _shape_json(content: str) -> RenderResult:
     )
 
 
-def _shape_mixed(content: str) -> RenderResult:
+def _shape_mixed(content: str, *, group_size: int = 3) -> RenderResult:
     """Mixed content keeps prose/code shaping but is not re-labeled as Markdown."""
 
-    shaped = _shape_markdown(content)
+    shaped = _shape_markdown(content, group_size=group_size)
     return RenderResult(
         render=RenderPayload(
             type="mixed",
@@ -337,6 +343,22 @@ def _shape_mixed(content: str) -> RenderResult:
         ),
         speech_text=shaped.speech_text,
     )
+
+
+def _markdown_prose_speech(text: str, *, group_size: int = 3) -> str:
+    paragraphs: list[str] = []
+    for group in re.split(r"\n\s*\n", text):
+        if not group.strip():
+            continue
+        if re.search(r"^\s{0,3}(?:[-*+]|\d{1,3}[.)、])\s+\S", group, re.MULTILINE):
+            shaped = _shape_list(group, group_size=group_size)
+            if shaped.speech_text:
+                paragraphs.append(shaped.speech_text)
+        else:
+            cleaned = _flatten_for_speech(group)
+            if cleaned:
+                paragraphs.append(cleaned)
+    return "\n\n".join(paragraphs)
 
 
 def _flatten_for_speech(text: str) -> str:

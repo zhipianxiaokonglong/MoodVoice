@@ -62,6 +62,24 @@ async def test_intensity_reaches_style_and_provider_request(
     assert request.style["intensity"] == pytest.approx(0.9)
 
 
+async def test_paragraph_anchors_reach_segments_without_changing_text(
+    config, styles, router, registry, cache
+):
+    pipeline = build_pipeline(config, styles, router, registry, cache)
+    content = "第一段。\n\n第二段。\n\n第三段。"
+    output = await pipeline.process(
+        make_event(
+            content=content,
+            prosody=[{"paragraph": 1, "emotion": "encouragement", "intensity": 0.8}],
+        ),
+        provider_override="fake_a",
+    )
+    request = registry.get("fake_a").requests[0]
+    assert output.text == content
+    assert any(segment.emotion == "encouragement" for segment in request.segments)
+    assert output.diagnostics.speech["plan"]["anchors"] >= 1
+
+
 async def test_intent_tool_routes_text_only_without_calling_provider(
     config, styles, router, registry, cache
 ):

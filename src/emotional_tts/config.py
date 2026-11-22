@@ -68,6 +68,8 @@ class SpeechSettings(BaseModel):
     segmentation_enabled: bool = False
     segmentation_min_chars: int = Field(default=240, ge=0, le=10000)
     max_segments: int = Field(default=4, ge=1, le=10)
+    segment_concurrency: int = Field(default=2, ge=1, le=8)
+    segment_first_chunk_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
     segment_pause_ms: int = Field(default=320, ge=0, le=5000)
     crossfade_ms: int = Field(default=30, ge=0, le=200)
 
@@ -77,7 +79,7 @@ class TTSSettings(BaseModel):
 
     provider: str = "auto"
     fallback_providers: list[str] = Field(default_factory=list)
-    first_chunk_timeout_seconds: float = Field(default=12.0, gt=0, le=120)
+    first_chunk_timeout_seconds: float = Field(default=20.0, gt=0, le=120)
     total_timeout_seconds: float = Field(default=60.0, gt=0, le=300)
     auto_order: list[str] = Field(default_factory=lambda: list(PROVIDER_ORDER))
     cache: CacheSettings = Field(default_factory=CacheSettings)

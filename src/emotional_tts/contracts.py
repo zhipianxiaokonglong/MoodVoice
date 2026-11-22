@@ -23,6 +23,9 @@ class InputTags(BaseModel):
     # Optional upstream hint. Providers that support prosody may use it; the
     # rest keep their canonical emotion mapping. Additive field, not required.
     intensity: float | None = Field(default=None, ge=0.0, le=1.0)
+    # Optional paragraph-level anchors. Providers without multi-style support
+    # may ignore them; they never change the text.
+    prosody: list[InputAnchor] | None = None
 
     @field_validator("emotion", "type", "intent", mode="before")
     @classmethod
@@ -30,6 +33,15 @@ class InputTags(BaseModel):
         if value is None:
             return ""
         return str(value).strip()
+
+
+class InputAnchor(BaseModel):
+    paragraph: int = Field(ge=0)
+    emotion: str = Field(min_length=1, max_length=64)
+    intensity: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+InputTags.model_rebuild()
 
 
 class InputEvent(BaseModel):

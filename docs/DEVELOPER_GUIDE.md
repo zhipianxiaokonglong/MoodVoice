@@ -178,6 +178,17 @@ OmniNexus v1 标签兼容桥接（不新增 canonical 类型）：
 `config/app.yaml` 的 `tts.speech` 控制段落停顿、最小片段、分段开关、最大段数、
 段间静音和交叉淡化。分批合成默认关闭，需真实听测后再开。
 
+可选 `tags.prosody` 是段落级锚点：
+
+```json
+{"paragraph": 1, "emotion": "encouragement", "intensity": 0.8}
+```
+
+- MoodVoice 按 `SpeechPlan.paragraph_index` 应用，不修改 `text`；
+- Azure 可把每个锚点渲染成独立的 `mstts:express-as`；
+- DeepSeek 只使用段落停顿，忽略 emotion/intensity；
+- 默认关闭，且最多 3 个锚点。
+
 ### 4.3 意图
 
 实现：`routing.IntentRouter`，配置 `config/routes.yaml`。

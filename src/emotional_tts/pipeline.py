@@ -117,7 +117,11 @@ class OutputPipeline:
             paragraph_pause_ms=self.config.tts.speech.paragraph_pause_ms,
             min_segment_chars=self.config.tts.speech.min_segment_chars,
             max_segments=self.config.tts.speech.max_planned_segments,
+            preserve_paragraphs=self.config.tts.speech.preserve_paragraphs,
+            list_group_size=self.config.tts.speech.list_group_size,
         )
+        if event.tags.prosody:
+            rendered.plan = rendered.plan.with_anchors(event.tags.prosody)
         route = self.router.route(event.tags.intent)
         emotion = self.styles.resolve(event.tags.emotion)
         intensity = (
@@ -333,6 +337,26 @@ class OutputPipeline:
                 style_params = provider.decorate_style(style_params)
                 selected_params = style_params
                 fmt = normalize_audio_format(provider.audio_format)
+                segments = tuple(prepared.rendered.plan.segments)
+                segment_styles: tuple[dict[str, Any], ...] = ()
+                if any(segment.emotion for segment in segments):
+                    resolved_segments = []
+                    for segment in segments:
+                        if segment.emotion:
+                            resolved = self.styles.resolve(segment.emotion)
+                            params = self.styles.provider_params(
+                                resolved,
+                                provider.style_family,
+                                intensity=(
+                                    segment.intensity
+                                    if segment.intensity is not None
+                                    else prepared.intensity
+                                ),
+                            )
+                            resolved_segments.append(provider.decorate_style(params))
+                        else:
+                            resolved_segments.append(dict(style_params))
+                    segment_styles = tuple(resolved_segments)
                 request = SynthesisRequest(
                     text=prepared.rendered.speech_text,
                     language=self.config.app.language,
@@ -343,7 +367,8 @@ class OutputPipeline:
                     style=style_params,
                     output_format=fmt,
                     intensity=prepared.intensity,
-                    segments=tuple(prepared.rendered.plan.segments),
+                    segments=segments,
+                    segment_styles=segment_styles,
                 )
                 request_preview = provider.request_preview(request)
             except ProviderError as exc:
@@ -367,6 +392,19 @@ class OutputPipeline:
             candidate_started = False
             completed = False
             first_chunk_ms: float | None = None
+            first_chunk_timeout = self.config.tts.first_chunk_timeout_seconds
+            if (
+                self.config.tts.speech.segmentation_enabled
+                and provider.capabilities.prosody.supports_segment_synthesis
+                and len(request.segments) > 1
+            ):
+                # Segmented synthesis buffers several vendor calls before it
+                # can emit the first complete WAV. Give it a separate budget
+                # instead of silently falling back to another voice at 12s.
+                first_chunk_timeout = max(
+                    first_chunk_timeout,
+                    self.config.tts.speech.segment_first_chunk_timeout_seconds,
+                )
             try:
                 contacted.append(provider.name)
                 iterator = provider.stream(request)
@@ -377,10 +415,7 @@ class OutputPipeline:
                 )
                 first_chunk = await self._next_nonempty(
                     iterator,
-                    timeout=min(
-                        self.config.tts.first_chunk_timeout_seconds,
-                        remaining_total,
-                    ),
+                    timeout=min(first_chunk_timeout, remaining_total),
                     provider=provider,
                     first=True,
                 )

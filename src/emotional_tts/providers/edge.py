@@ -47,12 +47,27 @@ class EdgeProvider(TTSProvider):
         style = request.style
         voice = request.voice or getattr(self.config, "voice", None) or "zh-CN-XiaoxiaoNeural"
         intensity_delta = (request.intensity - 0.5) * 2.0
+        rate_override = style.get("rate")
+        pitch_override = style.get("pitch")
+        volume_override = style.get("volume")
         rate_value = (request.speed - 1.0) * 100 + intensity_delta * 4
         pitch_value = float(request.style.get("pitch_semitones", 0)) + intensity_delta
         volume_value = float(request.style.get("volume_db", 0)) * 3 + intensity_delta * 2
-        rate = str(style.get("rate") or _percent(rate_value))
-        pitch = str(style.get("pitch") or _hz(pitch_value))
-        volume = str(style.get("volume") or _percent(volume_value))
+        rate = (
+            _shift_percent(str(rate_override), intensity_delta * 4)
+            if rate_override
+            else _percent(rate_value)
+        )
+        pitch = (
+            _shift_pitch(str(pitch_override), intensity_delta)
+            if pitch_override
+            else _hz(pitch_value)
+        )
+        volume = (
+            _shift_percent(str(volume_override), intensity_delta * 2)
+            if volume_override
+            else _percent(volume_value)
+        )
         for label, value, pattern in (
             ("rate", rate, _RATE_RE),
             ("pitch", pitch, _PITCH_RE),
@@ -139,6 +154,22 @@ class EdgeProvider(TTSProvider):
 def _percent(value: float) -> str:
     pct = max(-50, min(100, round(value)))
     return f"{pct:+d}%"
+
+
+def _shift_percent(value: str, delta: float) -> str:
+    match = re.fullmatch(r"([+-]?\d+(?:\.\d+)?)%", value.strip())
+    if not match:
+        return value
+    return _percent(float(match.group(1)) + delta)
+
+
+def _shift_pitch(value: str, delta: float) -> str:
+    match = re.fullmatch(r"([+-]?\d+(?:\.\d+)?)(Hz|st|%)", value.strip())
+    if not match:
+        return value
+    factor = 4.0 if match.group(2) == "Hz" else 2.0 if match.group(2) == "%" else 1.0
+    number = round(float(match.group(1)) + delta * factor)
+    return f"{number:+d}{match.group(2)}"
 
 
 def _hz(value: object) -> str:

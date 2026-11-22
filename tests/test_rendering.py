@@ -31,6 +31,20 @@ def test_list_keeps_blank_line_groups():
     assert "先呼吸；再喝水" in result.speech_text
 
 
+def test_list_group_size_breaks_long_lists_into_pauses():
+    content = "\n".join(f"- 第{i}项" for i in range(1, 8))
+    result = shape_content(content, "list", list_group_size=3)
+    assert result.speech_text.count("\n\n") == 2
+    assert result.plan.paragraphs == 3
+
+
+def test_preserve_paragraphs_can_be_disabled():
+    result = shape_content("第一段。\n\n第二段。", "text", preserve_paragraphs=False)
+    assert "\n" not in result.speech_text
+    assert "第一段。" in result.speech_text
+    assert "第二段。" in result.speech_text
+
+
 def test_code_is_rendered_without_reading_symbols_aloud():
     content = """这里是说明。
 

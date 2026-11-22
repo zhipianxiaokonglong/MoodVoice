@@ -53,3 +53,13 @@ def test_segment_public_view_does_not_expose_text():
     assert public["text_chars"] == 5
     assert public["pause_after_ms"] == 200
     assert "很长的原文" not in public
+
+
+def test_plan_with_anchors_keeps_text_and_applies_paragraph_style():
+    plan = build_speech_plan("第一段。\n\n第二段。", min_segment_chars=1)
+    anchored = plan.with_anchors([{"paragraph": 1, "emotion": "encouragement", "intensity": 0.8}])
+    assert anchored.to_text() == plan.to_text()
+    assert any(
+        segment.emotion == "encouragement" and segment.intensity == 0.8
+        for segment in anchored.segments
+    )

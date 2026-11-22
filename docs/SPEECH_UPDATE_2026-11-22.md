@@ -16,13 +16,16 @@
   - Local：透传 intensity + segments。
 - DeepSeek 默认 `filter_markdown=false`，由本层负责 Markdown 清理。
 - 分段合成默认关闭：`tts.speech.segmentation_enabled=false`。
+- 首包超时从 12s 提高到 20s；分段模式另有 30s 首包预算。
+- 新增可选段落锚点 `tags.prosody`（最多 3 个），Azure 可渲染为多段 `express-as`；DeepSeek 只使用停顿。
+- OmniNexus 分类器增加否定句、技术长文分离、结尾语气、confidence 和 intensity；低置信度回退 neutral。
 
 ## 自动化测试
 
 ```text
-MoodVoice: 131 passed, 1 skipped, 1 warning
-OmniNexus: 132 passed
-Dounai: 14 test files / 178 tests passed; typecheck 通过
+MoodVoice: 136 passed, 1 skipped, 1 warning
+OmniNexus: 140 passed
+Dounai: 14 test files / 181 tests passed; typecheck 通过
 Input: 180 passed
 Dounai Launcher: vitest 通过；typecheck 通过
 ruff check: All checks passed
@@ -40,8 +43,22 @@ status=synthesized
 provider=deepseek
 计划段数=4，段落=4
 厂商调用=1
-音频时长≈15–16s
+音频时长≈15–16s（86 字样本）
 ```
+
+### DeepSeek 长列表
+
+```text
+输入：三点缓解疲劳（519 字，多段）
+status=synthesized
+provider=deepseek
+speech_newlines=6
+plan=4 段落 / 6 片段 / 670ms 停顿
+音频时长≈103.2s
+```
+
+长文本曾触发 12s 首包超时并回退 Edge；将首包超时提高到 20s 后，
+本次 DeepSeek 直接成功，未切换音色。
 
 ### DeepSeek 分段模式
 
@@ -58,9 +75,9 @@ provider=deepseek
 
 ```text
 POST /api/v1/outputs → 200
-style.intensity=0.7
-speech_text 保留 4 个换行
-diagnostics.speech.plan.segments=3
+style.intensity=0.871
+speech_text 保留段落/统计
+diagnostics.speech.plan.segments=4
 audio_ref 可下载（audio/wav）
 GET /api/v1/contract → 1.3.0
 ```
@@ -74,6 +91,9 @@ GET /api/v1/contract → 1.3.0
 - ElevenLabs
 - MiniMax
 - Edge 的真实 live 测试默认跳过
+
+LLM side-channel 打标（`tagging.enabled`）默认关闭，只用 fake gateway 做了隔离/回退测试，
+未在真实本地模型上启用。Azure 多段 `express-as` 只做 mock SSML 测试，未做真实账户听测。
 
 因此上线说明中必须注明：这些厂商的 intensity/SSML/style 映射已通过单元测试，
 但真实音色、style 支持范围、延迟和接缝仍需在有密钥的环境逐项验收。

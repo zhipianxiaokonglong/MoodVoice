@@ -130,6 +130,8 @@ class LocalHTTPProvider(TTSProvider):
                 {
                     "text": segment.text,
                     "pause_after_ms": segment.pause_after_ms,
+                    "emotion": segment.emotion,
+                    "intensity": segment.intensity,
                 }
                 for segment in request.segments
             ],

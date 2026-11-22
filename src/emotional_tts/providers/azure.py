@@ -87,8 +87,14 @@ class AzureProvider(TTSProvider):
             return self.base_url
         return f"https://{self.region}.tts.speech.microsoft.com/cognitiveservices/v1"
 
-    def _effective(self, request: SynthesisRequest) -> dict[str, Any]:
-        style = request.style
+    def _effective(
+        self,
+        request: SynthesisRequest,
+        style: dict[str, Any] | None = None,
+        intensity: float | None = None,
+    ) -> dict[str, Any]:
+        style = style or dict(request.style)
+        effective_intensity = request.intensity if intensity is None else intensity
         azure_style = str(style.get("style") or "assistant").strip().lower()
         if not _STYLE_RE.fullmatch(azure_style):
             raise ProviderError(
@@ -101,10 +107,23 @@ class AzureProvider(TTSProvider):
         base_degree = _clamp(style.get("style_degree", 1.0), 0.01, 2.0)
         # 0.5 is neutral. Keep configured values exactly at the default so
         # existing mappings and diagnostics do not move unless asked to.
-        degree = _clamp(base_degree * (0.85 + 0.3 * request.intensity), 0.01, 2.0)
-        rate = str(style.get("rate") or _percent((request.speed - 1.0) * 100))
-        pitch = str(style.get("pitch") or _percent(float(style.get("pitch_semitones", 0)) * 2))
-        volume = str(style.get("volume") or _percent(float(style.get("volume_db", 0)) * 2))
+        intensity_delta = (effective_intensity - 0.5) * 2.0
+        degree = _clamp(base_degree * (0.85 + 0.3 * effective_intensity), 0.01, 2.0)
+        rate = (
+            _shift_percent(str(style["rate"]), intensity_delta * 4)
+            if style.get("rate")
+            else _percent((request.speed - 1.0) * 100)
+        )
+        pitch = (
+            _shift_percent(str(style["pitch"]), intensity_delta * 2)
+            if style.get("pitch")
+            else _percent(float(style.get("pitch_semitones", 0)) * 2)
+        )
+        volume = (
+            _shift_percent(str(style["volume"]), intensity_delta * 2)
+            if style.get("volume")
+            else _percent(float(style.get("volume_db", 0)) * 2)
+        )
         for label, value, pattern in (
             ("rate", rate, _RATE_RE),
             ("pitch", pitch, _PITCH_RE),
@@ -130,28 +149,60 @@ class AzureProvider(TTSProvider):
 
     def _ssml(self, request: SynthesisRequest, effective: dict[str, Any]) -> str:
         voice = effective["voice"]
-        if request.segments:
+        if request.segment_styles and len(request.segment_styles) == len(request.segments):
+            blocks: list[str] = []
+            for index, segment in enumerate(request.segments):
+                style = request.segment_styles[index]
+                seg_effective = self._effective(
+                    request,
+                    style,
+                    segment.intensity,
+                )
+                blocks.append(
+                    f"<mstts:express-as style={quoteattr(str(seg_effective['style']))} "
+                    f"styledegree={quoteattr(str(seg_effective['style_degree']))}>"
+                    f"<prosody rate={quoteattr(str(seg_effective['rate']))} "
+                    f"pitch={quoteattr(str(seg_effective['pitch']))} "
+                    f"volume={quoteattr(str(seg_effective['volume']))}>"
+                    f"{escape(segment.text)}"
+                    "</prosody></mstts:express-as>"
+                )
+                if segment.pause_after_ms > 0:
+                    blocks.append(f'<break time="{int(segment.pause_after_ms)}ms"/>')
+            body = "".join(blocks)
+        elif request.segments:
             body_parts: list[str] = []
             for segment in request.segments:
                 body_parts.append(escape(segment.text))
                 if segment.pause_after_ms > 0:
                     body_parts.append(f'<break time="{int(segment.pause_after_ms)}ms"/>')
-            body = "".join(body_parts)
+            body = (
+                f"<mstts:express-as style={quoteattr(str(effective['style']))} "
+                f"styledegree={quoteattr(str(effective['style_degree']))}>"
+                f"<prosody rate={quoteattr(str(effective['rate']))} "
+                f"pitch={quoteattr(str(effective['pitch']))} "
+                f"volume={quoteattr(str(effective['volume']))}>"
+                f"{''.join(body_parts)}"
+                "</prosody></mstts:express-as>"
+            )
         else:
-            body = escape(request.text)
+            body = (
+                f"<mstts:express-as style={quoteattr(str(effective['style']))} "
+                f"styledegree={quoteattr(str(effective['style_degree']))}>"
+                f"<prosody rate={quoteattr(str(effective['rate']))} "
+                f"pitch={quoteattr(str(effective['pitch']))} "
+                f"volume={quoteattr(str(effective['volume']))}>"
+                f"{escape(request.text)}"
+                "</prosody></mstts:express-as>"
+            )
         return (
             '<speak version="1.0" '
             'xmlns="http://www.w3.org/2001/10/synthesis" '
             'xmlns:mstts="https://www.w3.org/2001/mstts" '
             f"xml:lang={quoteattr(str(effective['lang']))}>"
             f"<voice name={quoteattr(str(voice))}>"
-            f"<mstts:express-as style={quoteattr(str(effective['style']))} "
-            f"styledegree={quoteattr(str(effective['style_degree']))}>"
-            f"<prosody rate={quoteattr(str(effective['rate']))} "
-            f"pitch={quoteattr(str(effective['pitch']))} "
-            f"volume={quoteattr(str(effective['volume']))}>"
             f"{body}"
-            "</prosody></mstts:express-as></voice></speak>"
+            "</voice></speak>"
         )
 
     def request_preview(self, request: SynthesisRequest) -> dict[str, Any]:
@@ -216,6 +267,13 @@ class AzureProvider(TTSProvider):
 def _percent(value: float) -> str:
     pct = max(-50, min(100, round(value)))
     return f"{pct:+d}%"
+
+
+def _shift_percent(value: str, delta: float) -> str:
+    match = re.fullmatch(r"([+-]?\d+(?:\.\d+)?)%", value.strip())
+    if not match:
+        return value
+    return _percent(float(match.group(1)) + delta)
 
 
 def _clamp(value: object, low: float, high: float) -> float:

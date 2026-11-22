@@ -80,6 +80,7 @@ class SynthesisRequest:
     output_format: str = "mp3"
     intensity: float = 0.5
     segments: tuple[SpeechSegment, ...] = ()
+    segment_styles: tuple[Mapping[str, Any], ...] = ()
 
     @property
     def text_chars(self) -> int:

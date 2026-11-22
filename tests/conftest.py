@@ -75,6 +75,7 @@ def make_event(
     intent: str = "reply",
     provider: str | None = None,
     intensity: float | None = None,
+    prosody: list[dict] | None = None,
 ) -> InputEvent:
     return InputEvent(
         event_id=uuid4(),
@@ -86,6 +87,7 @@ def make_event(
             type=content_type,
             intent=intent,
             intensity=intensity,
+            prosody=prosody,
         ),
         provider=provider,
     )

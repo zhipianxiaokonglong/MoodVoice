@@ -24,6 +24,7 @@ def request(
     *,
     intensity: float = 0.5,
     segments: tuple[SpeechSegment, ...] = (),
+    segment_styles: tuple[dict[str, Any], ...] = (),
 ) -> SynthesisRequest:
     return SynthesisRequest(
         text="你好 & <世界>",
@@ -36,6 +37,7 @@ def request(
         output_format="mp3",
         intensity=intensity,
         segments=segments,
+        segment_styles=segment_styles,
     )
 
 
@@ -95,10 +97,53 @@ async def test_azure_uses_intensity_and_breaks_for_segments():
     assert "&lt;break" not in seen["content"]
 
 
+async def test_azure_renders_per_segment_styles_when_anchors_provided():
+    seen: dict[str, Any] = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen["content"] = req.content.decode("utf-8")
+        return httpx.Response(200, content=b"ID3azure", headers={"content-type": "audio/mpeg"})
+
+    provider = AzureProvider(
+        ProviderConfig(
+            enabled=True,
+            region="eastasia",
+            voice="zh-CN-XiaoxiaoNeural",
+            output_format="audio-24khz-48kbitrate-mono-mp3",
+        ),
+        api_key="azure-test",
+    )
+    old = replace_client(provider, handler)
+    try:
+        await collect(
+            provider,
+            request(
+                {"style": "gentle", "style_degree": 1.2, "pitch": "-1%"},
+                segments=(
+                    SpeechSegment("先别急。", 0, 0, "comfort", 0.5),
+                    SpeechSegment("你可以的。", 0, 1, "encouragement", 0.9),
+                ),
+                segment_styles=(
+                    {"style": "gentle", "style_degree": 1.2, "pitch": "-1%"},
+                    {"style": "cheerful", "style_degree": 1.5, "pitch": "+2%"},
+                ),
+            ),
+        )
+    finally:
+        await old.aclose()
+        await provider.close()
+
+    assert seen["content"].count("<mstts:express-as") == 2
+    assert 'style="gentle"' in seen["content"]
+    assert 'style="cheerful"' in seen["content"]
+    assert "你可以的。" in seen["content"]
+
+
 def test_edge_maps_intensity_to_rate_pitch_and_volume():
     provider = EdgeProvider(ProviderConfig(voice="zh-CN-XiaoxiaoNeural"))
-    base = provider._params(request({"pitch_semitones": 0, "volume_db": 0}))
-    stronger = provider._params(request({"pitch_semitones": 0, "volume_db": 0}, intensity=0.9))
+    style = {"pitch": "-2Hz", "volume": "-2%"}
+    base = provider._params(request(style))
+    stronger = provider._params(request(style, intensity=0.9))
     assert base["rate"] != stronger["rate"]
     assert base["pitch"] != stronger["pitch"]
     assert base["volume"] != stronger["volume"]

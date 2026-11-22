@@ -11,6 +11,7 @@ import io
 import re
 import wave
 from dataclasses import dataclass, field
+from typing import Any
 
 _SENTENCE = re.compile(r"[^。！？；!?;\n]+[。！？；!?;]?")
 _SPACE = re.compile(r"[ \t\u3000]+")
@@ -41,12 +42,16 @@ class SpeechSegment:
     text: str
     pause_after_ms: int = 0
     paragraph_index: int = 0
+    emotion: str | None = None
+    intensity: float | None = None
 
     def public(self) -> dict[str, object]:
         return {
             "text_chars": len(self.text),
             "pause_after_ms": self.pause_after_ms,
             "paragraph_index": self.paragraph_index,
+            "emotion": self.emotion,
+            "intensity": self.intensity,
         }
 
 
@@ -81,7 +86,36 @@ class SpeechPlan:
             "paragraphs": self.paragraphs,
             "pause_total_ms": self.pause_total_ms,
             "source_chars": self.source_chars,
+            "anchors": sum(1 for segment in self.segments if segment.emotion),
         }
+
+    def with_anchors(self, anchors: list[Any]) -> SpeechPlan:
+        if not anchors:
+            return self
+
+        def value(anchor: Any, key: str, default: Any = None) -> Any:
+            if isinstance(anchor, dict):
+                return anchor.get(key, default)
+            return getattr(anchor, key, default)
+
+        mapping = {
+            int(value(anchor, "paragraph", -1)): anchor
+            for anchor in anchors
+            if value(anchor, "emotion")
+        }
+        if not mapping:
+            return self
+        segments = tuple(
+            SpeechSegment(
+                text=segment.text,
+                pause_after_ms=segment.pause_after_ms,
+                paragraph_index=segment.paragraph_index,
+                emotion=value(mapping.get(segment.paragraph_index), "emotion"),
+                intensity=value(mapping.get(segment.paragraph_index), "intensity"),
+            )
+            for segment in self.segments
+        )
+        return SpeechPlan(segments=segments, source_chars=self.source_chars)
 
 
 def build_speech_plan(

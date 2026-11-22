@@ -57,7 +57,8 @@ GET /api/v1/contract
                "unknown_policy": "route_to_unknown_destination",
                "unknown_destination": "ui.text_reply",
                "routes": {"reply": {"destination": "ui.voice_reply", "synthesize": true}, "…": {}}},
-    "intensity": {"optional": true, "range": [0.0, 1.0], "default": 0.5}
+    "intensity": {"optional": true, "range": [0.0, 1.0], "default": 0.5},
+    "prosody": {"optional": true, "max_anchors": 3, "fields": ["paragraph", "emotion", "intensity"]}
   },
   "output": {
     "required_fields": ["event_id", "text", "audio_ref", "style"],

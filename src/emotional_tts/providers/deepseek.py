@@ -8,6 +8,7 @@ routing/UI but does not pretend to control prosody.
 
 from __future__ import annotations
 
+import asyncio
 import struct
 from collections.abc import AsyncIterator
 from typing import Any, ClassVar
@@ -155,11 +156,21 @@ class DeepSeekProvider(TTSProvider):
         return segments
 
     async def _synthesize_segments(self, segments: list[SpeechSegment], voice: str) -> bytes:
-        parts = [await self._full_audio(segment.text, voice) for segment in segments]
+        concurrency = max(1, int(getattr(self.speech_settings, "segment_concurrency", 2) or 1))
+        semaphore = asyncio.Semaphore(concurrency)
+
+        async def one(segment: SpeechSegment) -> bytes:
+            async with semaphore:
+                return await self._full_audio(segment.text, voice)
+
+        if concurrency == 1:
+            results = [await one(segment) for segment in segments]
+        else:
+            results = await asyncio.gather(*(one(segment) for segment in segments))
         default_pause = int(getattr(self.speech_settings, "segment_pause_ms", 320) or 0)
         pauses = [segment.pause_after_ms or default_pause for segment in segments[:-1]]
         fade = int(getattr(self.speech_settings, "crossfade_ms", 30) or 0)
-        return concat_wav(parts, pauses, fade_ms=fade)
+        return concat_wav(list(results), pauses, fade_ms=fade)
 
     async def _full_audio(self, text: str, voice: str) -> bytes:
         headers = {
